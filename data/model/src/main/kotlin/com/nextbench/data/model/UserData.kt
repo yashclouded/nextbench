@@ -1,0 +1,40 @@
+package com.nextbench.data.model
+
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentId
+
+/**
+ * `users/{uid}` — a NextBench member (student or organization). Field names mirror the web
+ * schema verbatim so the same live documents deserialize without a migration.
+ */
+data class UserData(
+    @DocumentId val uid: String = "",
+    val name: String = "",
+    val email: String = "",
+    val school: String = "",
+    val city: String = "",
+    val verified: Boolean = false,
+    val verificationStatus: String = VerificationStatus.Pending.raw,
+    val verificationRejectionReason: String? = null,
+    val reputation: Int = 0,
+    val isAdmin: Boolean = false,
+    val role: String? = null,
+    val profilePicture: String? = null,
+    val idCardUrl: String? = null,
+    val selfieUrl: String? = null,
+    val about: String? = null,
+    val username: String? = null,
+    val firstName: String? = null,
+    val lastName: String? = null,
+    val anonymousPersonaName: String? = null,
+    val lastUsernameChange: Timestamp? = null,
+    val chatPrivacy: String? = null,
+    val accountType: String = AccountType.Student.raw,
+    val orgName: String? = null,
+    val orgWebsite: String? = null,
+    val orgDescription: String? = null,
+    val orgVerified: Boolean = false,
+    val fcmTokens: List<String> = emptyList(),
+    val createdAt: Timestamp? = null,
+    val updatedAt: Timestamp? = null,
+)
