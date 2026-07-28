@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Replace the placeholder items below with the real Google Fonts certificate arrays.
+  Copy font_certs.xml from:
+  https://github.com/android/user-interface-samples/blob/main/DownloadableFonts/app/src/main/res/values/font_certs.xml
+  Until then, fonts fall back to the system default (isOptional = true on every GoogleFont call).
+-->
+<resources>
+    <array name="com_google_android_gms_fonts_certs">
+        <item>@array/com_google_android_gms_fonts_certs_dev</item>
+        <item>@array/com_google_android_gms_fonts_certs_prod</item>
+    </array>
+    <string-array name="com_google_android_gms_fonts_certs_dev">
+        <item>PLACEHOLDER_DEV_CERT</item>
+    </string-array>
+    <string-array name="com_google_android_gms_fonts_certs_prod">
+        <item>PLACEHOLDER_PROD_CERT</item>
+    </string-array>
+</resources>
