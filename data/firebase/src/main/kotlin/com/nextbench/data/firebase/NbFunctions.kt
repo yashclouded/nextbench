@@ -5,95 +5,82 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Typed wrappers around the ~20 callable Cloud Functions the Android app uses.
- * All functions are fire-and-forget or return a Map; callers cast to the expected shape.
- * Suspend functions throw on non-2xx; callers should wrap in [runCatchingNb].
- */
 @Singleton
-class NbFunctions @Inject constructor(private val functions: FirebaseFunctions) {
+class NbFunctions @Inject constructor(
+    private val functions: FirebaseFunctions,
+) {
+    private suspend fun call(name: String, data: Any = emptyMap<String, Any?>()): Any? =
+        functions.getHttpsCallable(name).call(data).await().getData()
 
-    private suspend fun call(name: String, data: Any? = null): Any? =
-        functions.getHttpsCallable(name).call(data).await().data
+    private suspend fun callMap(name: String, data: Any = emptyMap<String, Any?>()): Map<String, Any?> =
+        call(name, data).asStringMap()
 
-    suspend fun createNotification(params: Map<String, Any?>) = call("createNotification", params)
+    suspend fun createNotification(params: Map<String, Any?>): Map<String, Any?> =
+        callMap("createNotification", params)
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun getDiscoveryFeed(params: Map<String, Any?>): List<Map<String, Any?>> =
-        (call("getDiscoveryFeed", params) as? List<*>)
-            ?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+    suspend fun getDiscoveryFeed(params: Map<String, Any?> = emptyMap()): Map<String, Any?> =
+        callMap("getDiscoveryFeed", params)
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun getRecommendedProducts(params: Map<String, Any?>): List<Map<String, Any?>> =
-        (call("getRecommendedProducts", params) as? List<*>)
-            ?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+    suspend fun getRecommendedProducts(params: Map<String, Any?> = emptyMap()): List<Map<String, Any?>> =
+        callMap("getRecommendedProducts", params).mapList("products")
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun getSuggestedUsers(params: Map<String, Any?>): List<Map<String, Any?>> =
-        (call("getSuggestedUsers", params) as? List<*>)
-            ?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+    suspend fun getSuggestedUsers(): List<Map<String, Any?>> =
+        callMap("getSuggestedUsers").mapList("users")
 
-    @Suppress("UNCHECKED_CAST")
     suspend fun searchDiscovery(params: Map<String, Any?>): Map<String, Any?> =
-        (call("searchDiscovery", params) as? Map<*, *>)
-            ?.entries?.associate { it.key.toString() to it.value } ?: emptyMap()
+        callMap("searchDiscovery", params)
 
-    @Suppress("UNCHECKED_CAST")
     suspend fun searchPublicUsers(params: Map<String, Any?>): List<Map<String, Any?>> =
-        (call("searchPublicUsers", params) as? List<*>)
-            ?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+        callMap("searchPublicUsers", params).mapList("users")
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun getPublicProfile(uid: String): Map<String, Any?> =
-        (call("getPublicProfile", mapOf("uid" to uid)) as? Map<*, *>)
-            ?.entries?.associate { it.key.toString() to it.value } ?: emptyMap()
+    suspend fun getPublicProfile(userId: String): Map<String, Any?>? =
+        callMap("getPublicProfile", mapOf("userId" to userId))["user"].asNullableStringMap()
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun getPublicProfileContent(params: Map<String, Any?>): Map<String, Any?> =
-        (call("getPublicProfileContent", params) as? Map<*, *>)
-            ?.entries?.associate { it.key.toString() to it.value } ?: emptyMap()
+    suspend fun getPublicProfileContent(userId: String): Map<String, Any?> =
+        callMap("getPublicProfileContent", mapOf("userId" to userId))
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun getPostReplies(params: Map<String, Any?>): List<Map<String, Any?>> =
-        (call("getPostReplies", params) as? List<*>)
-            ?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+    suspend fun getPostReplies(postId: String): List<Map<String, Any?>> =
+        callMap("getPostReplies", mapOf("postId" to postId)).mapList("replies")
 
-    @Suppress("UNCHECKED_CAST")
     suspend fun getProductReviews(productId: String): List<Map<String, Any?>> =
-        (call("getProductReviews", mapOf("productId" to productId)) as? List<*>)
-            ?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+        callMap("getProductReviews", mapOf("productId" to productId)).mapList("reviews")
 
-    suspend fun createProductReview(params: Map<String, Any?>) =
-        call("createProductReview", params)
+    suspend fun createProductReview(params: Map<String, Any?>): String =
+        callMap("createProductReview", params)["id"]?.toString().orEmpty()
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun createInviteCode(clubId: String): String =
-        (call("createInviteCode", mapOf("clubId" to clubId)) as? Map<*, *>)
-            ?.get("code")?.toString() ?: ""
+    suspend fun createInviteCode(): String =
+        callMap("createInviteCode")["code"]?.toString().orEmpty()
 
-    suspend fun submitInviteCode(code: String) =
-        call("submitInviteCode", mapOf("code" to code))
+    suspend fun submitInviteCode(referralCode: String): Map<String, Any?> =
+        callMap("submitInviteCode", mapOf("referralCode" to referralCode))
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun lookupReferralCode(code: String): Map<String, Any?> =
-        (call("lookupReferralCode", mapOf("code" to code)) as? Map<*, *>)
-            ?.entries?.associate { it.key.toString() to it.value } ?: emptyMap()
+    suspend fun lookupReferralCode(code: String): String? =
+        callMap("lookupReferralCode", mapOf("code" to code))["userId"]?.toString()
 
     suspend fun isReferralCodeAvailable(code: String): Boolean =
-        (call("isReferralCodeAvailable", mapOf("code" to code)) as? Map<*, *>)
-            ?.get("available") as? Boolean ?: false
+        callMap("isReferralCodeAvailable", mapOf("code" to code))["available"] as? Boolean ?: false
 
-    suspend fun sendAuthOtpEmail(email: String) =
-        call("sendAuthOtpEmail", mapOf("email" to email))
+    suspend fun sendAuthOtpEmail(email: String): Boolean =
+        callMap("sendAuthOtpEmail", mapOf("email" to email))["success"] as? Boolean ?: false
 
-    suspend fun verifyAuthOtpEmail(params: Map<String, Any?>) =
-        call("verifyAuthOtpEmail", params)
+    suspend fun verifyAuthOtpEmail(params: Map<String, Any?>): Map<String, Any?> =
+        callMap("verifyAuthOtpEmail", params)
 
-    @Suppress("UNCHECKED_CAST")
-    suspend fun getLandingStats(): Map<String, Any?> =
-        (call("getLandingStats") as? Map<*, *>)
-            ?.entries?.associate { it.key.toString() to it.value } ?: emptyMap()
+    suspend fun getLandingStats(): Map<String, Any?> = callMap("getLandingStats")
 
-    suspend fun deletePostCascade(postId: String) =
-        call("deletePostCascade", mapOf("postId" to postId))
+    suspend fun deletePostCascade(postId: String): Boolean =
+        callMap("deletePostCascade", mapOf("postId" to postId))["success"] as? Boolean ?: false
 }
+
+internal fun Any?.asStringMap(): Map<String, Any?> =
+    (this as? Map<*, *>)?.entries?.associate { (key, value) -> key.toString() to value }.orEmpty()
+
+private fun Any?.asNullableStringMap(): Map<String, Any?>? =
+    (this as? Map<*, *>)?.entries?.associate { (key, value) -> key.toString() to value }
+
+internal fun Map<String, Any?>.mapList(key: String): List<Map<String, Any?>> =
+    (get(key) as? List<*>)?.mapNotNull { value ->
+        (value as? Map<*, *>)?.entries?.associate { (entryKey, entryValue) ->
+            entryKey.toString() to entryValue
+        }
+    }.orEmpty()

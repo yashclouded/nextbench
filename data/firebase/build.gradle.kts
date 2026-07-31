@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -5,14 +7,23 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+
+fun localProp(key: String): String = localProps.getProperty(key) ?: System.getenv(key).orEmpty()
+
+fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 android {
     namespace = "com.nextbench.data.firebase"
     compileSdk = 35
 
     defaultConfig {
         minSdk = 26
-        buildConfigField("String", "CLOUDINARY_CLOUD_NAME", "\"\"")
-        buildConfigField("String", "CLOUDINARY_UPLOAD_PRESET", "\"\"")
+        buildConfigField("String", "CLOUDINARY_CLOUD_NAME", quoted(localProp("CLOUDINARY_CLOUD_NAME")))
+        buildConfigField("String", "CLOUDINARY_UPLOAD_PRESET", quoted(localProp("CLOUDINARY_UPLOAD_PRESET")))
     }
 
     compileOptions {
