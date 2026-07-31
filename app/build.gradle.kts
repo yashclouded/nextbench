@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
-    alias(libs.plugins.google.services)
+    alias(libs.plugins.google.services) apply false
 }
 
 val localProps = Properties().apply {
@@ -16,6 +16,34 @@ val localProps = Properties().apply {
 }
 fun localProp(key: String, default: String = ""): String =
     (localProps.getProperty(key) ?: System.getenv(key) ?: default)
+
+fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val googleServicesFile = file("google-services.json")
+if (googleServicesFile.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
+val releasePackagingRequested = gradle.startParameter.taskNames.any { taskName ->
+    val normalized = taskName.substringAfterLast(':').lowercase()
+    normalized == "build" ||
+        normalized == "assemble" ||
+        normalized.startsWith("assemblerelease") ||
+        normalized.startsWith("bundlerelease") ||
+        normalized.startsWith("publishrelease")
+}
+
+if (releasePackagingRequested) {
+    check(googleServicesFile.exists()) {
+        "app/google-services.json is required for release builds. See docs/SETUP.md."
+    }
+    check(localProp("CLOUDINARY_CLOUD_NAME").isNotBlank()) {
+        "CLOUDINARY_CLOUD_NAME is required for release builds."
+    }
+    check(localProp("CLOUDINARY_UPLOAD_PRESET").isNotBlank()) {
+        "CLOUDINARY_UPLOAD_PRESET is required for release builds."
+    }
+}
 
 android {
     namespace = "com.nextbench.app"
@@ -29,9 +57,8 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "CLOUDINARY_CLOUD_NAME", "\"${localProp("CLOUDINARY_CLOUD_NAME")}\"")
-        buildConfigField("String", "CLOUDINARY_UPLOAD_PRESET", "\"${localProp("CLOUDINARY_UPLOAD_PRESET")}\"")
-        buildConfigField("String", "GIPHY_API_KEY", "\"${localProp("GIPHY_API_KEY")}\"")
+        buildConfigField("boolean", "FIREBASE_CONFIGURED", googleServicesFile.exists().toString())
+        buildConfigField("String", "GIPHY_API_KEY", quoted(localProp("GIPHY_API_KEY")))
     }
 
     buildTypes {
@@ -40,7 +67,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
-            applicationIdSuffix = ".debug"
+            isMinifyEnabled = false
         }
     }
 

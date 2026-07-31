@@ -1,0 +1,7 @@
+# Android Studio normally writes sdk.dir automatically.
+sdk.dir=/path/to/Android/sdk
+
+# Client-safe upload identifiers. Never add Cloudinary API secrets here.
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_UPLOAD_PRESET=
+GIPHY_API_KEY=
