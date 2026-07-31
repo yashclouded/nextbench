@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".NextBenchApp"
@@ -29,12 +30,29 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep links: nextbench://post/{id}, nextbench://product/{id}, etc. -->
+            <!-- Custom scheme supports notification and share links without a browser hop. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nextbench" android:host="community" />
+                <data android:scheme="nextbench" android:host="marketplace" />
+                <data android:scheme="nextbench" android:host="post" />
+                <data android:scheme="nextbench" android:host="product" />
+                <data android:scheme="nextbench" android:host="profile" />
+                <data android:scheme="nextbench" android:host="u" />
+                <data android:scheme="nextbench" android:host="messages" />
+                <data android:scheme="nextbench" android:host="chat" />
+                <data android:scheme="nextbench" android:host="club" />
+                <data android:scheme="nextbench" android:host="notifications" />
+                <data android:scheme="nextbench" android:host="invite" />
+            </intent-filter>
+
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="nextbench" />
+                <data android:scheme="https" android:host="nextbench.in" />
             </intent-filter>
         </activity>
 
