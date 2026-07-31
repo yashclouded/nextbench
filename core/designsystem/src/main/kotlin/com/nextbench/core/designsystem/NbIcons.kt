@@ -244,4 +244,39 @@ object NbIcons {
     val Check: ImageVector by lazy {
         nbVector("Check") { line { moveTo(5f, 12.5f); lineTo(10f, 17.5f); lineTo(19f, 6.5f) } }
     }
+
+    val Moon: ImageVector by lazy {
+        nbVector("Moon") {
+            line {
+                moveTo(20f, 14.2f)
+                arcTo(8.4f, 8.4f, 0f, isMoreThanHalf = false, isPositiveArc = false, 9.8f, 3.5f)
+                arcTo(8.2f, 8.2f, 0f, isMoreThanHalf = true, isPositiveArc = true, 20f, 14.2f)
+                close()
+            }
+        }
+    }
+
+    val Sun: ImageVector by lazy {
+        nbVector("Sun") {
+            line {
+                moveTo(12f, 4f)
+                lineTo(12f, 2.5f)
+                moveTo(12f, 21.5f)
+                lineTo(12f, 20f)
+                moveTo(4f, 12f)
+                lineTo(2.5f, 12f)
+                moveTo(21.5f, 12f)
+                lineTo(20f, 12f)
+                moveTo(6.3f, 6.3f)
+                lineTo(5.2f, 5.2f)
+                moveTo(18.8f, 18.8f)
+                lineTo(17.7f, 17.7f)
+                moveTo(17.7f, 6.3f)
+                lineTo(18.8f, 5.2f)
+                moveTo(5.2f, 18.8f)
+                lineTo(6.3f, 17.7f)
+                circle(12f, 12f, 3.3f)
+            }
+        }
+    }
 }

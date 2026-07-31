@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.launch
 
 fun Modifier.pressScale(
@@ -27,7 +29,7 @@ fun Modifier.pressScale(
 ): Modifier = composed {
     val scale = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
-    this
+    val gestureModifier = this
         .graphicsLayer {
             scaleX = scale.value
             scaleY = scale.value
@@ -42,6 +44,17 @@ fun Modifier.pressScale(
                 onTap = { onTap?.invoke() },
             )
         }
+
+    if (onTap == null) {
+        gestureModifier
+    } else {
+        gestureModifier.semantics {
+            onClick {
+                onTap()
+                true
+            }
+        }
+    }
 }
 
 fun Modifier.shimmer(

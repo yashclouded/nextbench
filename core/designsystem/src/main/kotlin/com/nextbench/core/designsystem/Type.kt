@@ -6,7 +6,6 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
 private val provider = GoogleFont.Provider(
@@ -44,7 +43,7 @@ fun nbTypography() = Typography(
     bodyLarge      = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Normal,   fontSize = 16.sp),
     bodyMedium     = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Normal,   fontSize = 14.sp),
     bodySmall      = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Light,    fontSize = 12.sp),
-    labelLarge     = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Bold,     fontSize = 13.sp, letterSpacing = 0.2.em),
-    labelMedium    = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Bold,     fontSize = 12.sp, letterSpacing = 0.2.em),
-    labelSmall     = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Bold,     fontSize = 11.sp, letterSpacing = 0.2.em),
+    labelLarge     = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.SemiBold, fontSize = 14.sp, letterSpacing = 0.sp),
+    labelMedium    = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Medium,   fontSize = 12.sp, letterSpacing = 0.sp),
+    labelSmall     = TextStyle(fontFamily = InterFamily,    fontWeight = FontWeight.Medium,   fontSize = 11.sp, letterSpacing = 0.sp),
 )
