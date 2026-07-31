@@ -20,6 +20,7 @@ data class UserData(
     val isAdmin: Boolean = false,
     val role: String? = null,
     val profilePicture: String? = null,
+    val coverPhoto: String? = null,
     val idCardUrl: String? = null,
     val selfieUrl: String? = null,
     val about: String? = null,
@@ -28,13 +29,24 @@ data class UserData(
     val lastName: String? = null,
     val anonymousPersonaName: String? = null,
     val lastUsernameChange: Timestamp? = null,
-    val chatPrivacy: String? = null,
+    val chatPrivacy: ChatPrivacy? = null,
     val accountType: String = AccountType.Student.raw,
     val orgName: String? = null,
+    val orgType: String? = null,
+    val orgDocumentUrl: String? = null,
     val orgWebsite: String? = null,
     val orgDescription: String? = null,
     val orgVerified: Boolean = false,
+    val referralCode: String? = null,
+    val referredBy: String? = null,
+    val referralCount: Int = 0,
+    val online: Boolean = false,
+    val lastSeen: Timestamp? = null,
     val fcmTokens: List<String> = emptyList(),
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null,
+)
+
+data class ChatPrivacy(
+    val followersOnly: Boolean = false,
 )
