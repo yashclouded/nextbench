@@ -16,7 +16,7 @@ data class UserData(
     val verified: Boolean = false,
     val verificationStatus: String = VerificationStatus.Pending.raw,
     val verificationRejectionReason: String? = null,
-    val reputation: Int = 0,
+    val reputation: Double = 0.0,
     val isAdmin: Boolean = false,
     val role: String? = null,
     val profilePicture: String? = null,

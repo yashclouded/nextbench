@@ -14,6 +14,7 @@ class UserDataTest {
 
         assertEquals(AccountType.Student.raw, user.accountType)
         assertEquals(VerificationStatus.Pending.raw, user.verificationStatus)
+        assertEquals(0.0, user.reputation, 0.0)
         assertEquals(0, user.referralCount)
         assertFalse(user.online)
         assertNull(user.chatPrivacy)
