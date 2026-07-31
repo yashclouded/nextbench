@@ -20,7 +20,7 @@ object NbMotion {
     fun <T> entryTween() = tween<T>(NbDuration.Entry, easing = NbEasing.EaseOutQuart)
     fun <T> interactionTween() = tween<T>(NbDuration.Interaction, easing = NbEasing.EaseOutQuart)
     fun <T> pressSpring() = spring<T>(
-        dampingRatio = Spring.DampingRatioMediumBouncy,
+        dampingRatio = Spring.DampingRatioNoBouncy,
         stiffness    = Spring.StiffnessHigh,
     )
 }

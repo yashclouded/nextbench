@@ -15,7 +15,7 @@ private val provider = GoogleFont.Provider(
     certificates      = R.array.com_google_android_gms_fonts_certs,
 )
 
-private fun gf(name: String) = GoogleFont(name, isOptional = true)
+private fun gf(name: String) = GoogleFont(name, bestEffort = true)
 
 val InterFamily = androidx.compose.ui.text.font.FontFamily(
     Font(gf("Inter"), provider, FontWeight.Light),

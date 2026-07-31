@@ -7,6 +7,7 @@ object NbDimens {
     val space4  = 4.dp
     val space8  = 8.dp
     val space12 = 12.dp
+    val space14 = 14.dp
     val space16 = 16.dp
     val space20 = 20.dp
     val space24 = 24.dp
