@@ -629,7 +629,7 @@ private fun MarketplaceProductCard(
                     modifier = Modifier.size(18.dp),
                 )
             }
-            if (status != ProductStatus.Available) {
+            if (status == ProductStatus.Reserved || status == ProductStatus.Sold) {
                 NbPill(
                     label = status.raw.replaceFirstChar(Char::uppercase),
                     contentColor = Color.White,

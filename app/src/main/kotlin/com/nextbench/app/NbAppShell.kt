@@ -35,6 +35,7 @@ import com.nextbench.app.navigation.NbTab
 import com.nextbench.app.navigation.navigateToTab
 import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.app.marketplace.MarketplacePreviewRoute
+import com.nextbench.app.marketplace.ProductDetailPreviewRoute
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbLogo
@@ -55,7 +56,7 @@ fun NbAppShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentPath = backStackEntry?.destination?.route
     val chrome = resolveChrome(currentPath)
-    val selectedTab = if (currentPath == MarketplacePreviewRoute) {
+    val selectedTab = if (currentPath == MarketplacePreviewRoute || currentPath == ProductDetailPreviewRoute) {
         NbTab.Marketplace
     } else {
         NbRoute.tabFor(currentPath) ?: NbTab.Feed
@@ -118,6 +119,7 @@ private fun NbTopBar(
         path == NbRoute.Feed.path -> "Community"
         path == NbRoute.Marketplace.path -> "Marketplace"
         path == MarketplacePreviewRoute -> "Marketplace"
+        path == ProductDetailPreviewRoute -> "Listing"
         path == NbRoute.Create.path -> "Create"
         path == NbRoute.Messages.path -> "Messages"
         path == NbRoute.Profile.path -> "Your space"

@@ -26,6 +26,9 @@ import com.nextbench.app.feed.CommunityScreen
 import com.nextbench.app.marketplace.MarketplaceScreen
 import com.nextbench.app.marketplace.MarketplacePreviewRoute
 import com.nextbench.app.marketplace.MarketplacePreviewScreen
+import com.nextbench.app.marketplace.ProductDetailPreviewRoute
+import com.nextbench.app.marketplace.ProductDetailPreviewScreen
+import com.nextbench.app.marketplace.ProductDetailScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
@@ -179,9 +182,41 @@ fun NbNavHost(
             }
         }
 
-        composable(NbRoute.ProductDetail.path) {
+        composable(
+            route = NbRoute.ProductDetail.path,
+            arguments = listOf(navArgument("productId") { type = NavType.StringType }),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/product/{productId}" },
+                navDeepLink { uriPattern = "nextbench://product/{productId}" },
+            ),
+        ) {
             GuardedDestination(navController, NbRoute.ProductDetail.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Marketplace, "Listing", "Product details, seller context, and safe in-app messages will appear here.")
+                ProductDetailScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenProfile = { userId ->
+                        navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true }
+                    },
+                    onOpenChat = { roomId ->
+                        navController.navigate(NbRoute.messages(roomId)) { launchSingleTop = true }
+                    },
+                    onEdit = { productId ->
+                        navController.navigate(NbRoute.editItem(productId)) { launchSingleTop = true }
+                    },
+                    onSignIn = {
+                        navController.navigate(NbRoute.Login.path) { launchSingleTop = true }
+                    },
+                    onVerify = {
+                        navController.navigate(NbRoute.Verification.path) { launchSingleTop = true }
+                    },
+                )
+            }
+        }
+        if (com.nextbench.app.BuildConfig.DEBUG) {
+            composable(
+                route = ProductDetailPreviewRoute,
+                deepLinks = listOf(navDeepLink { uriPattern = "nextbench://marketplace/preview-product" }),
+            ) {
+                ProductDetailPreviewScreen()
             }
         }
         composable(
