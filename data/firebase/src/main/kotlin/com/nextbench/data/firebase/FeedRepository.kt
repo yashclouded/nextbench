@@ -55,6 +55,7 @@ class FeedRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
     private val refsProvider: Provider<FirestoreRefs>,
     private val functionsProvider: Provider<NbFunctions>,
+    private val postCache: PostMemoryCache,
 ) {
     private val auth get() = authProvider.get()
     private val refs get() = refsProvider.get()
@@ -66,7 +67,7 @@ class FeedRepository @Inject constructor(
     ): Result<FeedPage> = runCatching {
         ensureConfigured()
         val response = functions.getDiscoveryFeed(discoveryPayload(mode, cursor))
-        response.toFeedPage()
+        response.toFeedPage().also { page -> postCache.putAll(page.posts) }
     }
 
     suspend fun loadInteractions(uid: String): Result<FeedInteractions> = runCatching {
