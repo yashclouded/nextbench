@@ -26,6 +26,12 @@ data class Post(
     val privacy: String = ContentPrivacy.Public.raw,
     val imageUrl: String? = null,
     val imageUrls: List<String> = emptyList(),
+    val imageWidth: Int? = null,
+    val imageHeight: Int? = null,
+    val imagesDetailed: List<PostImage> = emptyList(),
+    val pdfUrl: String? = null,
+    val pdfPages: Int? = null,
+    val videoUrl: String? = null,
     val upvotesCount: Int = 0,
     val downvotesCount: Int = 0,
     val repliesCount: Int = 0,
@@ -34,6 +40,13 @@ data class Post(
     val poll: Poll? = null,
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null,
+)
+
+/** Original dimensions captured during upload, used to reserve stable feed media space. */
+data class PostImage(
+    val url: String = "",
+    val w: Int = 0,
+    val h: Int = 0,
 )
 
 /** Embedded poll on a [Post]. [votes] maps a choice index (as a string) to its vote count. */
