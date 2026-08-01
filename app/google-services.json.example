@@ -16,6 +16,12 @@
         {
           "current_key": "YOUR_FIREBASE_WEB_API_KEY"
         }
+      ],
+      "oauth_client": [
+        {
+          "client_id": "YOUR_WEB_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+          "client_type": 3
+        }
       ]
     }
   ],

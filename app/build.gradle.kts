@@ -59,6 +59,7 @@ android {
 
         buildConfigField("boolean", "FIREBASE_CONFIGURED", googleServicesFile.exists().toString())
         buildConfigField("String", "GIPHY_API_KEY", quoted(localProp("GIPHY_API_KEY")))
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(localProp("GOOGLE_WEB_CLIENT_ID")))
     }
 
     buildTypes {
@@ -121,7 +122,12 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
 
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
+
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

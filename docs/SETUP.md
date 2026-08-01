@@ -8,6 +8,7 @@ Copy `local.properties.example` to `local.properties`. Keep the Android SDK path
 CLOUDINARY_CLOUD_NAME=your_cloud_name
 CLOUDINARY_UPLOAD_PRESET=your_unsigned_preset
 GIPHY_API_KEY=your_key
+GOOGLE_WEB_CLIENT_ID=your_firebase_web_oauth_client_id
 ```
 
 Only client-safe identifiers belong in this file. Never place Cloudinary API secrets or Firebase Admin credentials in the Android project.

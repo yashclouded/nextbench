@@ -22,6 +22,11 @@ android {
 
     defaultConfig {
         minSdk = 26
+        buildConfigField(
+            "boolean",
+            "FIREBASE_CONFIGURED",
+            rootProject.file("app/google-services.json").exists().toString(),
+        )
         buildConfigField("String", "CLOUDINARY_CLOUD_NAME", quoted(localProp("CLOUDINARY_CLOUD_NAME")))
         buildConfigField("String", "CLOUDINARY_UPLOAD_PRESET", quoted(localProp("CLOUDINARY_UPLOAD_PRESET")))
     }
