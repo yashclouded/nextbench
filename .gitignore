@@ -12,6 +12,9 @@ captures/
 
 # Secrets — never commit
 google-services.json
+.env
+.env.*
+!.env.example
 *.keystore
 *.jks
 keystore.properties
