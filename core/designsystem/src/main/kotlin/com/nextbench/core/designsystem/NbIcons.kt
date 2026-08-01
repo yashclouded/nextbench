@@ -180,6 +180,16 @@ object NbIcons {
         }
     }
 
+    val Archive: ImageVector by lazy {
+        nbVector("Archive") {
+            line {
+                moveTo(4f, 7f); lineTo(20f, 7f); lineTo(19f, 20f); lineTo(5f, 20f); close()
+            }
+            line { moveTo(3f, 4f); lineTo(21f, 4f); lineTo(21f, 7f); lineTo(3f, 7f); close() }
+            line { moveTo(9f, 11f); lineTo(15f, 11f) }
+        }
+    }
+
     val ArrowUp: ImageVector by lazy {
         nbVector("ArrowUp") {
             line { moveTo(12f, 5f); lineTo(12f, 19f) }

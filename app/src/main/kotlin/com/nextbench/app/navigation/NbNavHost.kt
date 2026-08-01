@@ -22,6 +22,8 @@ import com.nextbench.app.auth.AuthGate
 import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.app.auth.requirementForRoute
 import com.nextbench.app.auth.AuthScreen
+import com.nextbench.app.chat.ChatRoomScreen
+import com.nextbench.app.chat.MessagesScreen
 import com.nextbench.app.feed.CommunityScreen
 import com.nextbench.app.marketplace.MarketplaceScreen
 import com.nextbench.app.marketplace.MarketplacePreviewRoute
@@ -148,7 +150,12 @@ fun NbNavHost(
 
         composable(NbRoute.Messages.path) {
             GuardedDestination(navController, NbRoute.Messages.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Messages, "Messages", "Keep marketplace conversations and campus groups in one calm inbox.")
+                MessagesScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenRoom = { roomId ->
+                        navController.navigate(NbRoute.messages(roomId)) { launchSingleTop = true }
+                    },
+                )
             }
         }
 
@@ -242,8 +249,36 @@ fun NbNavHost(
         }
         composable(NbRoute.ProfileDetail.path) { GuardedDestination(navController, NbRoute.ProfileDetail.path, authViewModel) { PlaceholderScreen(NbIcons.Profile, "Profile", "See a member's public profile, activity, and listings.") } }
         composable(NbRoute.UsernameProfile.path) { GuardedDestination(navController, NbRoute.UsernameProfile.path, authViewModel) { PlaceholderScreen(NbIcons.Profile, "Profile", "See a member's public profile, activity, and listings.") } }
-        composable(NbRoute.Chat.path) { GuardedDestination(navController, NbRoute.Chat.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Conversation", "Your direct conversation will appear here.") } }
-        composable(NbRoute.MessagesRoom.path) { GuardedDestination(navController, NbRoute.MessagesRoom.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Conversation", "Your direct conversation will appear here.") } }
+        composable(
+            route = NbRoute.Chat.path,
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/chat/{roomId}" },
+                navDeepLink { uriPattern = "nextbench://chat/{roomId}" },
+            ),
+        ) { backStackEntry ->
+            GuardedDestination(navController, NbRoute.Chat.path, authViewModel) {
+                ChatRoomScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenProduct = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+                )
+            }
+        }
+        composable(
+            route = NbRoute.MessagesRoom.path,
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/messages/{roomId}" },
+                navDeepLink { uriPattern = "nextbench://messages/{roomId}" },
+            ),
+        ) {
+            GuardedDestination(navController, NbRoute.MessagesRoom.path, authViewModel) {
+                ChatRoomScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenProduct = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+                )
+            }
+        }
         composable(NbRoute.MessagesClub.path) { GuardedDestination(navController, NbRoute.MessagesClub.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club conversation", "Your club conversation will appear here.") } }
         composable(NbRoute.Club.path) { GuardedDestination(navController, NbRoute.Club.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club", "A focused space for your campus group is coming together here.") } }
         composable(NbRoute.ClubSettings.path) { GuardedDestination(navController, NbRoute.ClubSettings.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club settings", "Manage members, permissions, and notifications for your club.") } }
