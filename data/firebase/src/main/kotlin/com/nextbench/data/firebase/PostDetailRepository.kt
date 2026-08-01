@@ -68,7 +68,7 @@ class PostDetailRepository @Inject constructor(
         author: UserData,
         content: String,
         parent: PostReply? = null,
-    ): Result<PostReply> = runCatching {
+    ): Result<CreatedPostReply> = runCatching {
         ensureConfigured()
         val uid = requireNotNull(auth.currentUser?.uid) { "Sign in to reply." }
         require(author.uid == uid) { "Your account changed. Try again." }
@@ -95,7 +95,7 @@ class PostDetailRepository @Inject constructor(
             parentId = parent?.id,
         )
 
-        val nextPostReplyCount = postRef.firestore.runTransaction { transaction ->
+        val counts = postRef.firestore.runTransaction { transaction ->
             val postSnapshot = transaction.get(postRef)
             if (!postSnapshot.exists()) throw FirebaseFirestoreException(
                 "Post no longer exists.",
@@ -114,6 +114,9 @@ class PostDetailRepository @Inject constructor(
 
             val serverTime = FieldValue.serverTimestamp()
             val postReplyCount = (postSnapshot.getLong("repliesCount") ?: 0L) + 1L
+            val parentReplyCount = parentSnapshot?.let {
+                (it.getLong("repliesCount") ?: 0L) + 1L
+            }
             transaction.set(replyRef, draft.toWriteData(serverTime))
             transaction.update(
                 postRef,
@@ -126,18 +129,22 @@ class PostDetailRepository @Inject constructor(
                 transaction.update(
                     parentRef,
                     mapOf(
-                        "repliesCount" to ((parentSnapshot.getLong("repliesCount") ?: 0L) + 1L),
+                        "repliesCount" to requireNotNull(parentReplyCount),
                         "updatedAt" to serverTime,
                     ),
                 )
             }
-            postReplyCount.toInt()
+            ReplyWriteCounts(postReplyCount.toInt(), parentReplyCount?.toInt())
         }.await()
 
         val reply = draft.toModel(now)
-        postCache.put(post.copy(repliesCount = nextPostReplyCount))
+        postCache.put(post.copy(repliesCount = counts.postRepliesCount))
         notificationScope.launch { notifyReplyAuthors(post, parent, reply) }
-        reply
+        CreatedPostReply(
+            reply = reply,
+            postRepliesCount = counts.postRepliesCount,
+            parentRepliesCount = counts.parentRepliesCount,
+        )
     }
 
     private suspend fun notifyReplyAuthors(post: Post, parent: PostReply?, reply: PostReply) {
@@ -162,6 +169,17 @@ class PostDetailRepository @Inject constructor(
         private const val NotificationTimeoutMillis = 2_500L
     }
 }
+
+data class CreatedPostReply(
+    val reply: PostReply,
+    val postRepliesCount: Int,
+    val parentRepliesCount: Int?,
+)
+
+private data class ReplyWriteCounts(
+    val postRepliesCount: Int,
+    val parentRepliesCount: Int?,
+)
 
 internal data class NewPostReply(
     val id: String,

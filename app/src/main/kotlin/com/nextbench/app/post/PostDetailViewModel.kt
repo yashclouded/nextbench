@@ -167,11 +167,15 @@ class PostDetailViewModel @Inject constructor(
         _state.update { it.copy(isSubmitting = true) }
         viewModelScope.launch {
             detailRepository.createReply(post, author, content, parent).fold(
-                onSuccess = { reply ->
+                onSuccess = { created ->
                     _state.update { current ->
-                        val updatedConversation = appendCreatedReply(current.replies, reply)
+                        val updatedConversation = appendCreatedReply(
+                            replies = current.replies,
+                            created = created.reply,
+                            parentRepliesCount = created.parentRepliesCount,
+                        )
                         current.copy(
-                            post = current.post?.copy(repliesCount = current.post.repliesCount + 1),
+                            post = current.post?.copy(repliesCount = created.postRepliesCount),
                             replies = updatedConversation,
                             composerText = "",
                             replyTarget = null,
@@ -429,9 +433,17 @@ internal fun flattenReplies(replies: List<PostReply>): List<ReplyRow> {
     return rows
 }
 
-internal fun appendCreatedReply(replies: List<PostReply>, created: PostReply): List<PostReply> =
+internal fun appendCreatedReply(
+    replies: List<PostReply>,
+    created: PostReply,
+    parentRepliesCount: Int? = null,
+): List<PostReply> =
     replies.map { reply ->
-        if (reply.id == created.parentId) reply.copy(repliesCount = reply.repliesCount + 1) else reply
+        if (reply.id == created.parentId) {
+            reply.copy(repliesCount = parentRepliesCount ?: (reply.repliesCount + 1))
+        } else {
+            reply
+        }
     } + created
 
 internal fun Throwable.postDetailMessage(): String {

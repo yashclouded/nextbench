@@ -53,9 +53,9 @@ class PostDetailViewModelTest {
         )
         val created = reply("child", parentId = "root")
 
-        val updated = appendCreatedReply(current, created)
+        val updated = appendCreatedReply(current, created, parentRepliesCount = 8)
 
-        assertEquals(3, updated.first { it.id == "root" }.repliesCount)
+        assertEquals(8, updated.first { it.id == "root" }.repliesCount)
         assertEquals(4, updated.first { it.id == "other" }.repliesCount)
         assertEquals("child", updated.last().id)
     }
