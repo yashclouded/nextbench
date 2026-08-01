@@ -32,6 +32,7 @@ import com.nextbench.app.marketplace.MarketplacePreviewScreen
 import com.nextbench.app.marketplace.ProductDetailPreviewRoute
 import com.nextbench.app.marketplace.ProductDetailPreviewScreen
 import com.nextbench.app.marketplace.ProductDetailScreen
+import com.nextbench.app.marketplace.ProductComposerScreen
 import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.notifications.NotificationsScreen
 import com.nextbench.app.post.PostDetailScreen
@@ -237,7 +238,13 @@ fun NbNavHost(
         }
         composable(NbRoute.Sell.path) {
             GuardedDestination(navController, NbRoute.Sell.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Marketplace, "List an item", "Add clear photos, a fair price, and meet someone from your campus.")
+                ProductComposerScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenProduct = { productId ->
+                        navController.navigate(NbRoute.product(productId)) { launchSingleTop = true }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
             }
         }
         composable(NbRoute.EditItem.path) {
