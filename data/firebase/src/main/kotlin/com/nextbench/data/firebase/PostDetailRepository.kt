@@ -12,8 +12,12 @@ import java.util.Date
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
@@ -28,6 +32,7 @@ class PostDetailRepository @Inject constructor(
     private val auth get() = authProvider.get()
     private val refs get() = refsProvider.get()
     private val functions get() = functionsProvider.get()
+    private val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     suspend fun loadPost(postId: String): Result<Post> = runCatching {
         require(postId.isNotBlank()) { "Missing post id." }
@@ -90,7 +95,7 @@ class PostDetailRepository @Inject constructor(
             parentId = parent?.id,
         )
 
-        postRef.firestore.runTransaction { transaction ->
+        val nextPostReplyCount = postRef.firestore.runTransaction { transaction ->
             val postSnapshot = transaction.get(postRef)
             if (!postSnapshot.exists()) throw FirebaseFirestoreException(
                 "Post no longer exists.",
@@ -108,11 +113,12 @@ class PostDetailRepository @Inject constructor(
             }
 
             val serverTime = FieldValue.serverTimestamp()
+            val postReplyCount = (postSnapshot.getLong("repliesCount") ?: 0L) + 1L
             transaction.set(replyRef, draft.toWriteData(serverTime))
             transaction.update(
                 postRef,
                 mapOf(
-                    "repliesCount" to ((postSnapshot.getLong("repliesCount") ?: 0L) + 1L),
+                    "repliesCount" to postReplyCount,
                     "updatedAt" to serverTime,
                 ),
             )
@@ -125,11 +131,12 @@ class PostDetailRepository @Inject constructor(
                     ),
                 )
             }
+            postReplyCount.toInt()
         }.await()
 
         val reply = draft.toModel(now)
-        postCache.put(post.copy(repliesCount = post.repliesCount + 1))
-        notifyReplyAuthors(post, parent, reply)
+        postCache.put(post.copy(repliesCount = nextPostReplyCount))
+        notificationScope.launch { notifyReplyAuthors(post, parent, reply) }
         reply
     }
 
