@@ -31,11 +31,10 @@ class PostDetailRepository @Inject constructor(
 
     suspend fun loadPost(postId: String): Result<Post> = runCatching {
         require(postId.isNotBlank()) { "Missing post id." }
-        postCache.get(postId)?.let { return@runCatching it }
         ensureConfigured()
 
         val post = if (auth.currentUser == null) {
-            functions.getDiscoveryFeed(mapOf("mode" to FeedMode.ForYou.raw))
+            postCache.get(postId) ?: functions.getDiscoveryFeed(mapOf("mode" to FeedMode.ForYou.raw))
                 .toFeedPage()
                 .also { postCache.putAll(it.posts) }
                 .posts
