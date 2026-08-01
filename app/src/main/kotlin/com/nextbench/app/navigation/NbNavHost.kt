@@ -22,6 +22,7 @@ import com.nextbench.app.auth.AuthScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
 import com.nextbench.app.ui.SplashScreen
+import com.nextbench.app.verification.VerificationScreen
 import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbMotion
 
@@ -144,7 +145,23 @@ fun NbNavHost(
         composable(NbRoute.Login.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Login, navController = navController) }
         composable(NbRoute.Signup.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Signup, navController = navController) }
         composable(NbRoute.OrgSignup.path) { PlaceholderScreen(NbIcons.Profile, "For organizations", "Create a verified organization profile for your campus.") }
-        composable(NbRoute.Verification.path) { GuardedDestination(navController, NbRoute.Verification.path, authViewModel) { PlaceholderScreen(NbIcons.Check, "Verify your identity", "A verified campus keeps conversations and transactions safer for everyone.") } }
+        composable(NbRoute.Verification.path) {
+            GuardedDestination(navController, NbRoute.Verification.path, authViewModel) {
+                val userData = (session as? SessionState.SignedIn)?.userData
+                if (userData != null) {
+                    VerificationScreen(
+                        user = userData,
+                        onClose = { navigateBackOrFeed(navController) },
+                        onContinue = {
+                            navController.navigate(NbRoute.Feed.path) {
+                                popUpTo(NbRoute.Verification.path) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
+            }
+        }
         composable(NbRoute.Auth.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Login, navController = navController) }
         composable(NbRoute.Terms.path) { PlaceholderScreen(NbIcons.Check, "Terms", "The terms that guide a respectful campus community.") }
         composable(NbRoute.Privacy.path) { PlaceholderScreen(NbIcons.Check, "Privacy", "How NextBench protects your information.") }
@@ -178,5 +195,11 @@ fun NavHostController.navigateToTab(tab: NbTab) {
         popUpTo(NbRoute.Feed.path) { saveState = true }
         launchSingleTop = true
         restoreState = true
+    }
+}
+
+private fun navigateBackOrFeed(navController: NavHostController) {
+    if (!navController.popBackStack()) {
+        navController.navigate(NbRoute.Feed.path) { launchSingleTop = true }
     }
 }

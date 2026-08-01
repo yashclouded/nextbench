@@ -12,6 +12,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 enum class VerificationStage {
@@ -29,10 +30,12 @@ data class VerificationOutcome(
 /** Bridges the web verification endpoint while keeping upload and review states observable. */
 @Singleton
 class VerificationRepository @Inject constructor(
-    private val auth: FirebaseAuth,
+    private val authProvider: Provider<FirebaseAuth>,
     private val uploader: CloudinaryUploader,
     private val authRepository: AuthRepository,
 ) {
+
+    private val auth get() = authProvider.get()
 
     suspend fun submit(
         user: UserData,
