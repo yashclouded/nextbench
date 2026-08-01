@@ -366,6 +366,14 @@ object NbIcons {
         }
     }
 
+    val Logout: ImageVector by lazy {
+        nbVector("Logout") {
+            line { moveTo(10f, 5f); lineTo(5f, 5f); lineTo(5f, 19f); lineTo(10f, 19f) }
+            line { moveTo(4f, 12f); lineTo(19f, 12f) }
+            line { moveTo(14f, 7f); lineTo(19f, 12f); lineTo(14f, 17f) }
+        }
+    }
+
     val ChevronDown: ImageVector by lazy {
         nbVector("ChevronDown") { line { moveTo(6f, 9f); lineTo(12f, 15f); lineTo(18f, 9f) } }
     }

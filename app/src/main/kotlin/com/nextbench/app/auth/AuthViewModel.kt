@@ -48,6 +48,11 @@ data class AuthUiState(
     val completedSession: AuthSession? = null,
 )
 
+data class SignOutUiState(
+    val isLoading: Boolean = false,
+    val error: AuthFailure? = null,
+)
+
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val repository: AuthRepository,
@@ -55,6 +60,9 @@ class AuthViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(AuthUiState())
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
+
+    private val _signOutState = MutableStateFlow(SignOutUiState())
+    val signOutState: StateFlow<SignOutUiState> = _signOutState.asStateFlow()
 
     val session: StateFlow<SessionState> = repository.sessionState.stateIn(
         viewModelScope,
@@ -197,6 +205,21 @@ class AuthViewModel @Inject constructor(
     }
 
     fun clearCompletedSession() = _state.update { it.copy(completedSession = null) }
+
+    fun signOut() {
+        if (signOutState.value.isLoading) return
+        _signOutState.value = SignOutUiState(isLoading = true)
+        viewModelScope.launch {
+            when (val result = repository.signOut()) {
+                is AuthResult.Success -> _signOutState.value = SignOutUiState()
+                is AuthResult.Failure -> _signOutState.value = SignOutUiState(error = result.error)
+            }
+        }
+    }
+
+    fun clearSignOutError() {
+        if (!signOutState.value.isLoading) _signOutState.update { it.copy(error = null) }
+    }
 
     private fun loadSchools() {
         viewModelScope.launch {

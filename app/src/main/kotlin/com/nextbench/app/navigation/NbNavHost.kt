@@ -34,6 +34,7 @@ import com.nextbench.app.marketplace.ProductDetailScreen
 import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.notifications.NotificationsScreen
 import com.nextbench.app.post.PostDetailScreen
+import com.nextbench.app.profile.ProfileScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
 import com.nextbench.app.ui.SplashScreen
@@ -163,7 +164,32 @@ fun NbNavHost(
 
         composable(NbRoute.Profile.path) {
             GuardedDestination(navController, NbRoute.Profile.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Profile, "Your space", "Your profile, listings, saved items, and activity will live here.")
+                val signOutState by authViewModel.signOutState.collectAsStateWithLifecycle()
+                ProfileScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenListing = { productId ->
+                        navController.navigate(NbRoute.product(productId)) { launchSingleTop = true }
+                    },
+                    onOpenPost = { postId ->
+                        navController.navigate(NbRoute.post(postId)) { launchSingleTop = true }
+                    },
+                    onOpenSaved = {
+                        navController.navigate(NbRoute.Wishlist.path) { launchSingleTop = true }
+                    },
+                    onOpenMessages = {
+                        navController.navigate(NbRoute.Messages.path) { launchSingleTop = true }
+                    },
+                    onOpenInvite = {
+                        navController.navigate(NbRoute.Invite.path) { launchSingleTop = true }
+                    },
+                    onOpenVerification = {
+                        navController.navigate(NbRoute.Verification.path) { launchSingleTop = true }
+                    },
+                    onSignOut = authViewModel::signOut,
+                    signOutLoading = signOutState.isLoading,
+                    signOutError = signOutState.error?.message,
+                    onDismissSignOutError = authViewModel::clearSignOutError,
+                )
             }
         }
 
