@@ -52,13 +52,15 @@ enum class ContentPrivacy(val raw: String) {
 }
 
 enum class ProductStatus(val raw: String) {
+    Pending("pending"),
     Available("available"),
     Reserved("reserved"),
-    Sold("sold");
+    Sold("sold"),
+    Rejected("rejected");
 
     companion object {
         fun from(raw: String?): ProductStatus =
-            entries.firstOrNull { it.raw == raw } ?: Available
+            entries.firstOrNull { it.raw == raw } ?: Pending
     }
 }
 

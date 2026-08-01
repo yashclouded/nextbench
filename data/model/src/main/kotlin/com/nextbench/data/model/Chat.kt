@@ -11,8 +11,13 @@ import com.google.firebase.firestore.DocumentId
 data class ChatRoom(
     @DocumentId val id: String = "",
     val participants: List<String> = emptyList(),
+    val type: String = "dm",
+    val productId: String? = null,
+    val productTitle: String? = null,
     val lastMessage: String? = null,
     val lastSenderId: String? = null,
+    val status: String = "active",
+    val requestedBy: String? = null,
     val updatedAt: Timestamp? = null,
     val unreadBy: List<String> = emptyList(),
     val mutedBy: List<String> = emptyList(),
