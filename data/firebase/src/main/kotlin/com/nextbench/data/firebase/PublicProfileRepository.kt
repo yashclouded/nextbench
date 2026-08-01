@@ -52,7 +52,7 @@ internal fun Map<String, Any?>.toPublicProfileContent(): PublicProfileContent = 
     posts = mapList("posts").mapNotNull(Map<String, Any?>::toPost),
 )
 
-private fun Map<String, Any?>.toPublicUser(): UserData? {
+internal fun Map<String, Any?>.toPublicUser(): UserData? {
     val uid = string("id")
     if (uid.isBlank()) return null
     return UserData(

@@ -38,6 +38,7 @@ import com.nextbench.app.notifications.NotificationsScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.app.profile.ProfileScreen
 import com.nextbench.app.profile.PublicProfileScreen
+import com.nextbench.app.search.SearchScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
 import com.nextbench.app.ui.SplashScreen
@@ -204,7 +205,14 @@ fun NbNavHost(
             }
         }
 
-        composable(NbRoute.Search.path) { PlaceholderScreen(NbIcons.Search, "Search", "Find people, posts, clubs, and listings across your campus.") }
+        composable(NbRoute.Search.path) {
+            SearchScreen(
+                user = (session as? SessionState.SignedIn)?.userData,
+                onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
+                onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
+                onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+            )
+        }
 
         composable(
             route = NbRoute.Notifications.path,
