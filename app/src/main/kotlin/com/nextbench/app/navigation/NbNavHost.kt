@@ -32,6 +32,7 @@ import com.nextbench.app.marketplace.ProductDetailPreviewRoute
 import com.nextbench.app.marketplace.ProductDetailPreviewScreen
 import com.nextbench.app.marketplace.ProductDetailScreen
 import com.nextbench.app.marketplace.WishlistScreen
+import com.nextbench.app.notifications.NotificationsScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
@@ -168,9 +169,21 @@ fun NbNavHost(
 
         composable(NbRoute.Search.path) { PlaceholderScreen(NbIcons.Search, "Search", "Find people, posts, clubs, and listings across your campus.") }
 
-        composable(NbRoute.Notifications.path) {
+        composable(
+            route = NbRoute.Notifications.path,
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/notifications" },
+                navDeepLink { uriPattern = "nextbench://notifications" },
+            ),
+        ) {
             GuardedDestination(navController, NbRoute.Notifications.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Bell, "Notifications", "Replies, offers, mentions, and important account updates will appear here.")
+                NotificationsScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenLink = { link ->
+                        val route = notificationRoute(link)
+                        if (route != null) navController.navigate(route) { launchSingleTop = true }
+                    },
+                )
             }
         }
 
@@ -320,6 +333,22 @@ fun NbNavHost(
         composable(NbRoute.Privacy.path) { PlaceholderScreen(NbIcons.Check, "Privacy", "How NextBench protects your information.") }
         composable(NbRoute.Careers.path) { PlaceholderScreen(NbIcons.Check, "Careers", "Help build a better student platform.") }
         composable(NbRoute.Transparency.path) { PlaceholderScreen(NbIcons.Check, "Transparency", "How we make decisions about safety and trust.") }
+    }
+}
+
+internal fun notificationRoute(link: String): String? {
+    val normalized = link.trim().removePrefix("https://nextbench.in/").removePrefix("/")
+    return when {
+        normalized == "dashboard" || normalized == "community" -> NbRoute.Feed.path
+        normalized == "marketplace" -> NbRoute.Marketplace.path
+        normalized == "notifications" -> NbRoute.Notifications.path
+        normalized.startsWith("product/") -> normalized
+        normalized.startsWith("post/") -> normalized
+        normalized.startsWith("profile/") -> normalized
+        normalized.startsWith("u/") -> normalized
+        normalized.startsWith("chat/") -> normalized
+        normalized.startsWith("messages/") -> normalized
+        else -> null
     }
 }
 

@@ -9,6 +9,7 @@ import com.nextbench.data.firebase.AuthRepository
 import com.nextbench.data.firebase.AuthResult
 import com.nextbench.data.firebase.AuthSession
 import com.nextbench.data.firebase.StudentSignupData
+import com.nextbench.data.firebase.NotificationRepository
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.data.model.School
 import com.nextbench.data.model.UserData
@@ -50,6 +51,7 @@ data class AuthUiState(
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val repository: AuthRepository,
+    private val notificationRepository: NotificationRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(AuthUiState())
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
@@ -68,6 +70,13 @@ class AuthViewModel @Inject constructor(
 
     init {
         loadSchools()
+        viewModelScope.launch {
+            session.collect { current ->
+                (current as? SessionState.SignedIn)?.firebaseUser?.uid?.let { uid ->
+                    notificationRepository.syncMessagingToken(uid)
+                }
+            }
+        }
     }
 
     fun setMode(mode: OtpMode) = _state.update {
