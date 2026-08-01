@@ -196,19 +196,16 @@ class ProductDetailRepository @Inject constructor(
 
         val interestMessage = "Hey! I'm interested in your listing: \"${product.title}\" (₹${product.price})"
         val messageRef = refs.messages(roomId).document()
-        roomRef.firestore.batch().apply {
-            set(
-                roomRef,
-                productRoomPayload(
-                    buyerId = buyerId,
-                    sellerId = product.sellerId,
-                    product = product,
-                    pending = pending,
-                    initialMessage = interestMessage,
-                ),
-            )
-            set(messageRef, inquiryMessagePayload(senderId = buyerId, text = interestMessage))
-        }.commit().await()
+        roomRef.set(
+            productRoomPayload(
+                buyerId = buyerId,
+                sellerId = product.sellerId,
+                product = product,
+                pending = pending,
+                initialMessage = interestMessage,
+            ),
+        ).await()
+        messageRef.set(inquiryMessagePayload(senderId = buyerId, text = interestMessage)).await()
         runCatching {
             functions.createNotification(
                 mapOf(
