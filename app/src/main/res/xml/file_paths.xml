@@ -3,4 +3,7 @@
     <cache-path
         name="verification_photos"
         path="verification/" />
+    <cache-path
+        name="post_media"
+        path="post_media/" />
 </paths>

@@ -24,6 +24,7 @@ import com.nextbench.app.auth.requirementForRoute
 import com.nextbench.app.auth.AuthScreen
 import com.nextbench.app.chat.ChatRoomScreen
 import com.nextbench.app.chat.MessagesScreen
+import com.nextbench.app.create.CreateScreen
 import com.nextbench.app.feed.CommunityScreen
 import com.nextbench.app.marketplace.MarketplaceScreen
 import com.nextbench.app.marketplace.MarketplacePreviewRoute
@@ -147,7 +148,15 @@ fun NbNavHost(
 
         composable(NbRoute.Create.path) {
             GuardedDestination(navController, NbRoute.Create.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Plus, "Create something useful", "Share a thought with your campus or pass an item on to someone nearby.")
+                CreateScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenSell = {
+                        navController.navigate(NbRoute.Sell.path) { launchSingleTop = true }
+                    },
+                    onOpenPost = { postId ->
+                        navController.navigate(NbRoute.post(postId)) { launchSingleTop = true }
+                    },
+                )
             }
         }
 
