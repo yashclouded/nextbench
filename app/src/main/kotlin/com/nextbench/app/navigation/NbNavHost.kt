@@ -31,6 +31,7 @@ import com.nextbench.app.marketplace.MarketplacePreviewScreen
 import com.nextbench.app.marketplace.ProductDetailPreviewRoute
 import com.nextbench.app.marketplace.ProductDetailPreviewScreen
 import com.nextbench.app.marketplace.ProductDetailScreen
+import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
@@ -175,7 +176,15 @@ fun NbNavHost(
 
         composable(NbRoute.Wishlist.path) {
             GuardedDestination(navController, NbRoute.Wishlist.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Bookmark, "Saved", "Your saved listings and posts will be ready here.")
+                WishlistScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenProduct = { productId ->
+                        navController.navigate(NbRoute.product(productId)) { launchSingleTop = true }
+                    },
+                    onBrowse = {
+                        navController.navigate(NbRoute.Marketplace.path) { launchSingleTop = true }
+                    },
+                )
             }
         }
         composable(NbRoute.Sell.path) {
