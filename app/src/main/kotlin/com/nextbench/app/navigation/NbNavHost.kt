@@ -37,6 +37,7 @@ import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.notifications.NotificationsScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.app.profile.ProfileScreen
+import com.nextbench.app.profile.PublicProfileScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
 import com.nextbench.app.ui.SplashScreen
@@ -323,8 +324,32 @@ fun NbNavHost(
                 },
             )
         }
-        composable(NbRoute.ProfileDetail.path) { GuardedDestination(navController, NbRoute.ProfileDetail.path, authViewModel) { PlaceholderScreen(NbIcons.Profile, "Profile", "See a member's public profile, activity, and listings.") } }
-        composable(NbRoute.UsernameProfile.path) { GuardedDestination(navController, NbRoute.UsernameProfile.path, authViewModel) { PlaceholderScreen(NbIcons.Profile, "Profile", "See a member's public profile, activity, and listings.") } }
+        composable(
+            route = NbRoute.ProfileDetail.path,
+            arguments = listOf(navArgument("userId") { type = NavType.StringType }),
+        ) {
+            GuardedDestination(navController, NbRoute.ProfileDetail.path, authViewModel) {
+                PublicProfileScreen(
+                    profileKey = it.arguments?.getString("userId").orEmpty(),
+                    username = false,
+                    onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+                    onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
+                )
+            }
+        }
+        composable(
+            route = NbRoute.UsernameProfile.path,
+            arguments = listOf(navArgument("username") { type = NavType.StringType }),
+        ) {
+            GuardedDestination(navController, NbRoute.UsernameProfile.path, authViewModel) {
+                PublicProfileScreen(
+                    profileKey = it.arguments?.getString("username").orEmpty(),
+                    username = true,
+                    onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+                    onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
+                )
+            }
+        }
         composable(
             route = NbRoute.Chat.path,
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
