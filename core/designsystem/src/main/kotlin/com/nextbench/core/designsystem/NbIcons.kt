@@ -279,4 +279,74 @@ object NbIcons {
             }
         }
     }
+
+    val Mail: ImageVector by lazy {
+        nbVector("Mail") {
+            line {
+                moveTo(4f, 6f); lineTo(20f, 6f)
+                arcTo(1.5f, 1.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 21.5f, 7.5f)
+                lineTo(21.5f, 16.5f)
+                arcTo(1.5f, 1.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 20f, 18f)
+                lineTo(4f, 18f)
+                arcTo(1.5f, 1.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2.5f, 16.5f)
+                lineTo(2.5f, 7.5f)
+                arcTo(1.5f, 1.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 4f, 6f)
+                close()
+            }
+            line { moveTo(3f, 7f); lineTo(12f, 13.5f); lineTo(21f, 7f) }
+        }
+    }
+
+    val Shield: ImageVector by lazy {
+        nbVector("Shield") {
+            line {
+                moveTo(12f, 3f); lineTo(19f, 6f); lineTo(18f, 13f)
+                arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 12f, 21f)
+                arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = true, 6f, 13f)
+                lineTo(5f, 6f); close()
+            }
+            line { moveTo(8.5f, 12f); lineTo(11f, 14.5f); lineTo(15.5f, 9.5f) }
+        }
+    }
+
+    val Building: ImageVector by lazy {
+        nbVector("Building") {
+            line {
+                moveTo(4f, 21f); lineTo(4f, 4f); lineTo(14f, 4f); lineTo(14f, 21f)
+                moveTo(14f, 9f); lineTo(20f, 9f); lineTo(20f, 21f)
+                moveTo(2f, 21f); lineTo(22f, 21f)
+                moveTo(7f, 8f); lineTo(11f, 8f)
+                moveTo(7f, 12f); lineTo(11f, 12f)
+                moveTo(7f, 16f); lineTo(11f, 16f)
+                moveTo(16.5f, 13f); lineTo(17.5f, 13f)
+                moveTo(16.5f, 17f); lineTo(17.5f, 17f)
+            }
+        }
+    }
+
+    val ArrowRight: ImageVector by lazy {
+        nbVector("ArrowRight") {
+            line { moveTo(4f, 12f); lineTo(20f, 12f) }
+            line { moveTo(14f, 6f); lineTo(20f, 12f); lineTo(14f, 18f) }
+        }
+    }
+
+    val ChevronDown: ImageVector by lazy {
+        nbVector("ChevronDown") { line { moveTo(6f, 9f); lineTo(12f, 15f); lineTo(18f, 9f) } }
+    }
+
+    val Upload: ImageVector by lazy {
+        nbVector("Upload") {
+            line { moveTo(12f, 16f); lineTo(12f, 4f) }
+            line { moveTo(7f, 9f); lineTo(12f, 4f); lineTo(17f, 9f) }
+            line { moveTo(5f, 20f); lineTo(19f, 20f) }
+        }
+    }
+
+    val Refresh: ImageVector by lazy {
+        nbVector("Refresh") {
+            line { moveTo(20f, 11f); arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = false, 6.5f, 6.5f) }
+            line { moveTo(20f, 5f); lineTo(20f, 11f); lineTo(14f, 11f) }
+        }
+    }
 }

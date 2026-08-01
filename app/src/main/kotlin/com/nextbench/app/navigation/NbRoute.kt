@@ -22,6 +22,7 @@ sealed class NbRoute(val path: String) {
     data object Notifications : NbRoute("notifications")
     data object Wishlist : NbRoute("wishlist")
     data object Sell : NbRoute("sell")
+    data object EditItem : NbRoute("edit-item/{productId}")
     data object ProductDetail : NbRoute("product/{productId}")
     data object PostDetail : NbRoute("post/{postId}")
     data object ProfileDetail : NbRoute("profile/{userId}")
@@ -69,6 +70,7 @@ sealed class NbRoute(val path: String) {
         fun isTopLevel(path: String?): Boolean = topLevel.any { it.path == path }
 
         fun product(id: String) = "product/${id.encodeRouteSegment()}"
+        fun editItem(id: String) = "edit-item/${id.encodeRouteSegment()}"
         fun post(id: String) = "post/${id.encodeRouteSegment()}"
         fun profile(userId: String) = "profile/${userId.encodeRouteSegment()}"
         fun username(username: String) = "u/${username.encodeRouteSegment()}"

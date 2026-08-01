@@ -5,6 +5,7 @@ import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.nextbench.data.model.School
 import com.nextbench.data.model.UserData
@@ -60,6 +61,15 @@ sealed interface AuthResult<out T> {
     data class Failure(val error: AuthFailure) : AuthResult<Nothing>
 }
 
+sealed interface SessionState {
+    data object Loading : SessionState
+    data object SignedOut : SessionState
+    data class SignedIn(
+        val firebaseUser: FirebaseUser,
+        val userData: UserData?,
+    ) : SessionState
+}
+
 @Singleton
 class AuthRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
@@ -71,15 +81,43 @@ class AuthRepository @Inject constructor(
     private val refs get() = refsProvider.get()
     private val functions get() = functionsProvider.get()
 
-    val authState: Flow<FirebaseUser?> = if (!BuildConfig.FIREBASE_CONFIGURED) {
-        flowOf(null)
+    val sessionState: Flow<SessionState> = if (!BuildConfig.FIREBASE_CONFIGURED) {
+        flowOf(SessionState.SignedOut)
     } else {
         callbackFlow {
-            val listener = FirebaseAuth.AuthStateListener { trySend(it.currentUser) }
-            auth.addAuthStateListener(listener)
-            awaitClose { auth.removeAuthStateListener(listener) }
+            var profileListener: ListenerRegistration? = null
+            val authListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+                profileListener?.remove()
+                val user = firebaseAuth.currentUser
+                if (user == null) {
+                    trySend(SessionState.SignedOut)
+                } else {
+                    trySend(SessionState.Loading)
+                    profileListener = refs.user(user.uid).addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            close(error)
+                            return@addSnapshotListener
+                        }
+                        trySend(
+                            SessionState.SignedIn(
+                                firebaseUser = user,
+                                userData = snapshot?.takeIf { it.exists() }?.toObject(UserData::class.java),
+                            ),
+                        )
+                    }
+                }
+            }
+            auth.addAuthStateListener(authListener)
+            awaitClose {
+                profileListener?.remove()
+                auth.removeAuthStateListener(authListener)
+            }
         }.distinctUntilChanged()
     }
+
+    val authState: Flow<FirebaseUser?> = sessionState.map { state ->
+        (state as? SessionState.SignedIn)?.firebaseUser
+    }.distinctUntilChanged()
 
     fun userData(uid: String): Flow<UserData?> = if (!BuildConfig.FIREBASE_CONFIGURED) {
         flowOf(null)
@@ -110,7 +148,12 @@ class AuthRepository @Inject constructor(
         val response = functions.verifyAuthOtpEmail(
             otpVerificationPayload(email, otp, signupData),
         )
-        signInFromResponse(response)
+        val session = signInFromResponse(response)
+        if (signupData == null && !refs.user(session.firebaseUser.uid).get().await().exists()) {
+            auth.signOut()
+            throw NoProfileException()
+        }
+        session
     }
 
     suspend fun signInWithGoogleIdToken(idToken: String): AuthResult<AuthSession> = authResult {

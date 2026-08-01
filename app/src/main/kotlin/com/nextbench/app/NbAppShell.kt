@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -32,6 +33,7 @@ import com.nextbench.app.navigation.NbNavHost
 import com.nextbench.app.navigation.NbRoute
 import com.nextbench.app.navigation.NbTab
 import com.nextbench.app.navigation.navigateToTab
+import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbLogo
@@ -47,6 +49,7 @@ import com.nextbench.core.designsystem.pressScale
 fun NbAppShell(
     onToggleTheme: () -> Unit,
     navController: NavHostController = rememberNavController(),
+    authViewModel: AuthViewModel = hiltViewModel(),
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentPath = backStackEntry?.destination?.route
@@ -83,7 +86,11 @@ fun NbAppShell(
             }
         },
     ) { innerPadding ->
-        NbNavHost(navController = navController, modifier = Modifier.padding(innerPadding))
+        NbNavHost(
+            navController = navController,
+            authViewModel = authViewModel,
+            modifier = Modifier.padding(innerPadding),
+        )
     }
 }
 
@@ -112,6 +119,7 @@ private fun NbTopBar(
         path == NbRoute.Notifications.path -> "Notifications"
         path == NbRoute.Wishlist.path -> "Saved"
         path == NbRoute.Sell.path -> "List an item"
+        path?.startsWith("edit-item/") == true -> "Edit listing"
         path == NbRoute.Admin.path -> "Admin"
         path?.startsWith("product/") == true -> "Listing"
         path?.startsWith("post/") == true -> "Post"

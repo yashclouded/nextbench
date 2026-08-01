@@ -34,10 +34,13 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun SplashScreen(
+    sessionReady: Boolean,
     onFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var settled by remember { mutableStateOf(false) }
+    var animationFinished by remember { mutableStateOf(false) }
+    var handedOff by remember { mutableStateOf(false) }
 
     val logoScale by animateFloatAsState(
         targetValue = if (settled) 1f else 0.82f,
@@ -53,7 +56,14 @@ fun SplashScreen(
     LaunchedEffect(Unit) {
         settled = true
         delay(NbDuration.Entry.toLong())
-        onFinished()
+        animationFinished = true
+    }
+
+    LaunchedEffect(animationFinished, sessionReady) {
+        if (animationFinished && sessionReady && !handedOff) {
+            handedOff = true
+            onFinished()
+        }
     }
 
     Box(
