@@ -19,6 +19,7 @@ import com.nextbench.app.auth.AuthGate
 import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.app.auth.requirementForRoute
 import com.nextbench.app.auth.AuthScreen
+import com.nextbench.app.feed.CommunityScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
 import com.nextbench.app.ui.SplashScreen
@@ -79,7 +80,23 @@ fun NbNavHost(
             )
         }
 
-        composable(NbRoute.Feed.path) { PlaceholderScreen(NbIcons.Home, "Community", "Posts, questions, and conversations from your campus.") }
+        composable(NbRoute.Feed.path) {
+            CommunityScreen(
+                user = (session as? SessionState.SignedIn)?.userData,
+                onOpenPost = { postId ->
+                    navController.navigate(NbRoute.post(postId)) { launchSingleTop = true }
+                },
+                onOpenProfile = { userId ->
+                    navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true }
+                },
+                onSignIn = {
+                    navController.navigate(NbRoute.Login.path) { launchSingleTop = true }
+                },
+                onVerify = {
+                    navController.navigate(NbRoute.Verification.path) { launchSingleTop = true }
+                },
+            )
+        }
 
         composable(NbRoute.Marketplace.path) { PlaceholderScreen(NbIcons.Marketplace, "Marketplace", "Find useful things nearby, from notes to hostel essentials.") }
 

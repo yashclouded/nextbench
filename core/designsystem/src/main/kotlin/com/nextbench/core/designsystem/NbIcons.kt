@@ -146,11 +146,36 @@ object NbIcons {
         }
     }
 
+    val HeartFilled: ImageVector by lazy {
+        nbVector("Heart filled") {
+            solid {
+                moveTo(12f, 21.2f)
+                lineToRelative(-1.35f, -1.22f)
+                curveToRelative(-5.05f, -4.55f, -8.35f, -7.55f, -8.35f, -11.45f)
+                curveToRelative(0f, -3.18f, 2.48f, -5.73f, 5.58f, -5.73f)
+                curveToRelative(1.75f, 0f, 3.32f, 0.82f, 4.12f, 2.08f)
+                curveToRelative(0.8f, -1.26f, 2.37f, -2.08f, 4.12f, -2.08f)
+                curveToRelative(3.1f, 0f, 5.58f, 2.55f, 5.58f, 5.73f)
+                curveToRelative(0f, 3.9f, -3.3f, 6.9f, -8.35f, 11.45f)
+                close()
+            }
+        }
+    }
+
     val Bookmark: ImageVector by lazy {
         nbVector("Bookmark") {
             line {
                 moveTo(6f, 4f); lineTo(18f, 4f); lineTo(18f, 20f)
                 lineTo(12f, 15.5f); lineTo(6f, 20f); close()
+            }
+        }
+    }
+
+    val BookmarkFilled: ImageVector by lazy {
+        nbVector("Bookmark filled") {
+            solid {
+                moveTo(6f, 3.5f); lineTo(18f, 3.5f); lineTo(18f, 21f)
+                lineTo(12f, 16.45f); lineTo(6f, 21f); close()
             }
         }
     }
@@ -347,6 +372,26 @@ object NbIcons {
         nbVector("Refresh") {
             line { moveTo(20f, 11f); arcTo(8f, 8f, 0f, isMoreThanHalf = false, isPositiveArc = false, 6.5f, 6.5f) }
             line { moveTo(20f, 5f); lineTo(20f, 11f); lineTo(14f, 11f) }
+        }
+    }
+
+    val Play: ImageVector by lazy {
+        nbVector("Play") {
+            solid {
+                moveTo(8f, 5f); lineTo(20f, 12f); lineTo(8f, 19f); close()
+            }
+        }
+    }
+
+    val FileText: ImageVector by lazy {
+        nbVector("Document") {
+            line {
+                moveTo(6f, 3f); lineTo(14f, 3f); lineTo(19f, 8f); lineTo(19f, 21f)
+                lineTo(6f, 21f); close()
+                moveTo(14f, 3f); lineTo(14f, 8f); lineTo(19f, 8f)
+                moveTo(9f, 12f); lineTo(16f, 12f)
+                moveTo(9f, 16f); lineTo(16f, 16f)
+            }
         }
     }
 }
