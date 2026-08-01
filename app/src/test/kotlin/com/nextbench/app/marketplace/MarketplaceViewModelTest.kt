@@ -14,8 +14,14 @@ class MarketplaceViewModelTest {
             Product(id = "lamp", title = "Desk lamp", category = "Hostel", sellerName = "Dev", city = "Delhi"),
         )
 
-        assertEquals(listOf("book"), filterAndSortProducts(products, "maya", AllCategory, MarketplaceSort.Newest).map(Product::id))
-        assertEquals(listOf("lamp"), filterAndSortProducts(products, "", "Hostel", MarketplaceSort.Newest).map(Product::id))
+        assertEquals(
+            listOf("book"),
+            filterAndSortProducts(products, "maya", AllCategory, AllCondition, MarketplaceSort.Newest).map(Product::id),
+        )
+        assertEquals(
+            listOf("lamp"),
+            filterAndSortProducts(products, "", "Hostel", AllCondition, MarketplaceSort.Newest).map(Product::id),
+        )
     }
 
     @Test
@@ -26,8 +32,32 @@ class MarketplaceViewModelTest {
             Product(id = "high", price = 500),
         )
 
-        assertEquals(listOf("old", "same", "high"), filterAndSortProducts(products, "", AllCategory, MarketplaceSort.PriceLow).map(Product::id))
-        assertEquals(listOf("high", "old", "same"), filterAndSortProducts(products, "", AllCategory, MarketplaceSort.PriceHigh).map(Product::id))
+        assertEquals(
+            listOf("old", "same", "high"),
+            filterAndSortProducts(products, "", AllCategory, AllCondition, MarketplaceSort.PriceLow).map(Product::id),
+        )
+        assertEquals(
+            listOf("high", "old", "same"),
+            filterAndSortProducts(products, "", AllCategory, AllCondition, MarketplaceSort.PriceHigh).map(Product::id),
+        )
+    }
+
+    @Test
+    fun `condition filtering stays exact and case insensitive`() {
+        val products = listOf(
+            Product(id = "new", condition = "Brand New"),
+            Product(id = "used", condition = "Used"),
+        )
+
+        val filtered = filterAndSortProducts(
+            products = products,
+            query = "",
+            category = AllCategory,
+            condition = "brand new",
+            sort = MarketplaceSort.Newest,
+        )
+
+        assertEquals(listOf("new"), filtered.map(Product::id))
     }
 
     @Test

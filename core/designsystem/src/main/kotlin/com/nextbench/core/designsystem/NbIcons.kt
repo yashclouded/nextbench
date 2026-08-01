@@ -360,6 +360,15 @@ object NbIcons {
         nbVector("ChevronDown") { line { moveTo(6f, 9f); lineTo(12f, 15f); lineTo(18f, 9f) } }
     }
 
+    val Filter: ImageVector by lazy {
+        nbVector("Filter") {
+            line {
+                moveTo(4f, 5f); lineTo(20f, 5f); lineTo(14f, 12f)
+                lineTo(14f, 19f); lineTo(10f, 21f); lineTo(10f, 12f); close()
+            }
+        }
+    }
+
     val Upload: ImageVector by lazy {
         nbVector("Upload") {
             line { moveTo(12f, 16f); lineTo(12f, 4f) }

@@ -44,6 +44,7 @@ data class MarketplaceUiState(
     val products: List<Product> = emptyList(),
     val query: String = "",
     val category: String = AllCategory,
+    val condition: String = AllCondition,
     val sort: MarketplaceSort = MarketplaceSort.Newest,
     val wishlistProductIds: Set<String> = emptySet(),
     val isInitialLoading: Boolean = true,
@@ -58,7 +59,7 @@ data class MarketplaceUiState(
     val notice: MarketplaceNotice? = null,
 ) {
     val visibleProducts: List<Product>
-        get() = filterAndSortProducts(products, query, category, sort)
+        get() = filterAndSortProducts(products, query, category, condition, sort)
 
     val categories: List<String>
         get() = listOf(AllCategory) + products
@@ -108,6 +109,10 @@ class MarketplaceViewModel @Inject constructor(
 
     fun selectCategory(category: String) {
         _state.update { it.copy(category = category.ifBlank { AllCategory }) }
+    }
+
+    fun selectCondition(condition: String) {
+        _state.update { it.copy(condition = condition.ifBlank { AllCondition }) }
     }
 
     fun selectSort(sort: MarketplaceSort) {
@@ -307,15 +312,21 @@ internal fun filterAndSortProducts(
     products: List<Product>,
     query: String,
     category: String,
+    condition: String,
     sort: MarketplaceSort,
 ): List<Product> {
     val term = query.trim().lowercase()
     val selectedCategory = category.trim().lowercase()
+    val selectedCondition = condition.trim().lowercase()
     return products
         .asSequence()
         .filter { product ->
             selectedCategory.isBlank() || selectedCategory == AllCategory.lowercase() ||
                 product.category.trim().lowercase() == selectedCategory
+        }
+        .filter { product ->
+            selectedCondition.isBlank() || selectedCondition == AllCondition.lowercase() ||
+                product.condition.trim().lowercase() == selectedCondition
         }
         .filter { product ->
             term.isBlank() || listOf(
@@ -366,3 +377,4 @@ private fun Throwable.marketplaceMessage(): String {
 }
 
 const val AllCategory = "All"
+const val AllCondition = "Any condition"

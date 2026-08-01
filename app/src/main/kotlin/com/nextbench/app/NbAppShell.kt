@@ -34,6 +34,7 @@ import com.nextbench.app.navigation.NbRoute
 import com.nextbench.app.navigation.NbTab
 import com.nextbench.app.navigation.navigateToTab
 import com.nextbench.app.auth.AuthViewModel
+import com.nextbench.app.marketplace.MarketplacePreviewRoute
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbLogo
@@ -54,7 +55,11 @@ fun NbAppShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentPath = backStackEntry?.destination?.route
     val chrome = resolveChrome(currentPath)
-    val selectedTab = NbRoute.tabFor(currentPath) ?: NbTab.Feed
+    val selectedTab = if (currentPath == MarketplacePreviewRoute) {
+        NbTab.Marketplace
+    } else {
+        NbRoute.tabFor(currentPath) ?: NbTab.Feed
+    }
 
     BackHandler(enabled = chrome.canNavigateBack) {
         navigateBackOrHome(navController)
@@ -112,6 +117,7 @@ private fun NbTopBar(
     val title = when {
         path == NbRoute.Feed.path -> "Community"
         path == NbRoute.Marketplace.path -> "Marketplace"
+        path == MarketplacePreviewRoute -> "Marketplace"
         path == NbRoute.Create.path -> "Create"
         path == NbRoute.Messages.path -> "Messages"
         path == NbRoute.Profile.path -> "Your space"
@@ -190,7 +196,7 @@ internal fun resolveChrome(path: String?): NbChromeState {
     }
 
     val chromeFree = NbRoute.chromeFree.any { it.path == path }
-    val topLevel = NbRoute.isTopLevel(path)
+    val topLevel = NbRoute.isTopLevel(path) || path == MarketplacePreviewRoute
     return NbChromeState(
         showTopBar = !chromeFree,
         showBottomBar = !chromeFree && topLevel,

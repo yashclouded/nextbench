@@ -23,6 +23,9 @@ import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.app.auth.requirementForRoute
 import com.nextbench.app.auth.AuthScreen
 import com.nextbench.app.feed.CommunityScreen
+import com.nextbench.app.marketplace.MarketplaceScreen
+import com.nextbench.app.marketplace.MarketplacePreviewRoute
+import com.nextbench.app.marketplace.MarketplacePreviewScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
@@ -102,7 +105,37 @@ fun NbNavHost(
             )
         }
 
-        composable(NbRoute.Marketplace.path) { PlaceholderScreen(NbIcons.Marketplace, "Marketplace", "Find useful things nearby, from notes to hostel essentials.") }
+        composable(NbRoute.Marketplace.path) {
+            MarketplaceScreen(
+                user = (session as? SessionState.SignedIn)?.userData,
+                onOpenProduct = { productId ->
+                    navController.navigate(NbRoute.product(productId)) { launchSingleTop = true }
+                },
+                onOpenProfile = { userId ->
+                    navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true }
+                },
+                onOpenWishlist = {
+                    navController.navigate(NbRoute.Wishlist.path) { launchSingleTop = true }
+                },
+                onSell = {
+                    navController.navigate(NbRoute.Sell.path) { launchSingleTop = true }
+                },
+                onSignIn = {
+                    navController.navigate(NbRoute.Login.path) { launchSingleTop = true }
+                },
+                onVerify = {
+                    navController.navigate(NbRoute.Verification.path) { launchSingleTop = true }
+                },
+            )
+        }
+        if (com.nextbench.app.BuildConfig.DEBUG) {
+            composable(
+                route = MarketplacePreviewRoute,
+                deepLinks = listOf(navDeepLink { uriPattern = "nextbench://marketplace/preview" }),
+            ) {
+                MarketplacePreviewScreen()
+            }
+        }
 
         composable(NbRoute.Create.path) {
             GuardedDestination(navController, NbRoute.Create.path, authViewModel) {
