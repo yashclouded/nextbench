@@ -81,4 +81,32 @@ class ProductComposerRepositoryContractTest {
         assertEquals(100_000L, ProductComposerRepository.MaxPrice)
         assertTrue(ProductComposerRepository.Conditions.containsAll(listOf("Brand New", "Like New", "Good", "Used")))
     }
+
+    @Test
+    fun `edit payload only changes fields allowed by marketplace rules`() {
+        val payload = productUpdatePayload(
+            user = user,
+            draft = ProductEditDraft(
+                title = "Updated calculator",
+                price = 900,
+                category = "Electronics",
+                condition = "Good",
+                description = "Includes a case",
+                meetupAvailable = true,
+                deliveryAvailable = true,
+                retainedImageUrls = listOf("https://cdn/old.jpg"),
+                newImages = emptyList(),
+            ),
+            imageUrls = listOf("https://cdn/old.jpg", "https://cdn/new.jpg"),
+        )
+
+        assertEquals(
+            setOf("title", "price", "condition", "category", "image", "images", "description", "meetupAvailable", "deliveryAvailable", "city", "updatedAt"),
+            payload.keys,
+        )
+        assertEquals("https://cdn/old.jpg", payload["image"])
+        assertEquals(listOf("https://cdn/old.jpg", "https://cdn/new.jpg"), payload["images"])
+        assertFalse(payload.containsKey("status"))
+        assertFalse(payload.containsKey("sellerId"))
+    }
 }

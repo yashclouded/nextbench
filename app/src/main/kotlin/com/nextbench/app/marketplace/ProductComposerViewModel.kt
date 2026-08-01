@@ -6,7 +6,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.NewProductDraft
 import com.nextbench.data.firebase.ProductComposerRepository
+import com.nextbench.data.firebase.ProductDetailRepository
+import com.nextbench.data.firebase.ProductEditDraft
 import com.nextbench.data.firebase.ProductUploadProgress
+import com.nextbench.data.model.Product
+import com.nextbench.data.model.ProductStatus
 import com.nextbench.data.model.UserData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -22,8 +26,9 @@ import kotlinx.coroutines.withContext
 @Immutable
 data class ProductComposerImage(
     val id: String,
-    val uri: Uri,
-    val file: File,
+    val uri: Uri? = null,
+    val file: File? = null,
+    val remoteUrl: String? = null,
 )
 
 @Immutable
@@ -40,6 +45,8 @@ data class ProductComposerState(
     val isPublishing: Boolean = false,
     val progress: ProductUploadProgress? = null,
     val error: String? = null,
+    val isLoading: Boolean = false,
+    val editingProductId: String? = null,
     val publishedProductId: String? = null,
 ) {
     val hasDraft: Boolean get() = title.isNotBlank() || price.isNotBlank() || description.isNotBlank() || images.isNotEmpty()
@@ -92,6 +99,7 @@ val ProductComposerCategories = listOf(
 class ProductComposerViewModel @Inject constructor(
     private val repository: ProductComposerRepository,
     private val mediaStore: ProductMediaStore,
+    private val detailRepository: ProductDetailRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProductComposerState())
     val state: StateFlow<ProductComposerState> = _state.asStateFlow()
@@ -103,6 +111,44 @@ class ProductComposerViewModel @Inject constructor(
     fun setDescription(value: String) = _state.update { it.copy(description = value.take(ProductComposerRepository.MaxDescriptionLength), error = null) }
     fun setMeetup(value: Boolean) = _state.update { it.copy(meetupAvailable = value, error = null) }
     fun setDelivery(value: Boolean) = _state.update { it.copy(deliveryAvailable = value, error = null) }
+
+    fun loadForEdit(productId: String, user: UserData?) {
+        if (productId.isBlank() || state.value.isLoading || state.value.editingProductId == productId) return
+        _state.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            detailRepository.loadProduct(productId).fold(
+                onSuccess = { product ->
+                    if (user == null || product.sellerId != user.uid) {
+                        _state.update { it.copy(isLoading = false, error = "You can only edit your own listing.") }
+                    } else if (ProductStatus.from(product.status) !in setOf(ProductStatus.Pending, ProductStatus.Available)) {
+                        _state.update { it.copy(isLoading = false, error = "This listing cannot be edited right now.") }
+                    } else {
+                        applyProduct(product)
+                    }
+                },
+                onFailure = { error -> _state.update { it.copy(isLoading = false, error = error.productComposerMessage()) } },
+            )
+        }
+    }
+
+    private fun applyProduct(product: Product) {
+        val urls = product.images.filter(String::isNotBlank).ifEmpty { listOfNotNull(product.image?.takeIf(String::isNotBlank)) }
+        _state.update {
+            it.copy(
+                title = product.title,
+                price = product.price.toString(),
+                category = product.category.ifBlank { ProductComposerCategories.first() },
+                condition = product.condition.ifBlank { ProductComposerRepository.Conditions[1] },
+                description = product.description,
+                meetupAvailable = product.meetupAvailable,
+                deliveryAvailable = product.deliveryAvailable,
+                images = urls.mapIndexed { index, url -> ProductComposerImage("remote_$index", remoteUrl = url) },
+                isLoading = false,
+                editingProductId = product.id,
+                error = null,
+            )
+        }
+    }
 
     fun prepareImages(uris: List<Uri>) {
         val remaining = ProductComposerRepository.MaxImages - state.value.images.size
@@ -136,22 +182,42 @@ class ProductComposerViewModel @Inject constructor(
         if (!snapshot.canPublish) return
         _state.update { it.copy(isPublishing = true, progress = null, error = null) }
         viewModelScope.launch {
-            repository.publish(
-                user = user,
-                draft = NewProductDraft(
-                    title = snapshot.title,
-                    price = requireNotNull(snapshot.parsedPrice),
-                    category = snapshot.category,
-                    condition = snapshot.condition,
-                    description = snapshot.description,
-                    meetupAvailable = snapshot.meetupAvailable,
-                    deliveryAvailable = snapshot.deliveryAvailable,
-                    images = snapshot.images.map(ProductComposerImage::file),
-                ),
-                onProgress = { progress -> _state.update { it.copy(progress = progress) } },
-            ).fold(
+            val result = if (snapshot.editingProductId != null) {
+                repository.update(
+                    user = user,
+                    productId = snapshot.editingProductId,
+                    draft = ProductEditDraft(
+                        title = snapshot.title,
+                        price = requireNotNull(snapshot.parsedPrice),
+                        category = snapshot.category,
+                        condition = snapshot.condition,
+                        description = snapshot.description,
+                        meetupAvailable = snapshot.meetupAvailable,
+                        deliveryAvailable = snapshot.deliveryAvailable,
+                        retainedImageUrls = snapshot.images.mapNotNull(ProductComposerImage::remoteUrl),
+                        newImages = snapshot.images.mapNotNull(ProductComposerImage::file),
+                    ),
+                    onProgress = { progress -> _state.update { it.copy(progress = progress) } },
+                )
+            } else {
+                repository.publish(
+                    user = user,
+                    draft = NewProductDraft(
+                        title = snapshot.title,
+                        price = requireNotNull(snapshot.parsedPrice),
+                        category = snapshot.category,
+                        condition = snapshot.condition,
+                        description = snapshot.description,
+                        meetupAvailable = snapshot.meetupAvailable,
+                        deliveryAvailable = snapshot.deliveryAvailable,
+                        images = snapshot.images.mapNotNull(ProductComposerImage::file),
+                    ),
+                    onProgress = { progress -> _state.update { it.copy(progress = progress) } },
+                )
+            }
+            result.fold(
                 onSuccess = { productId ->
-                    snapshot.images.forEach { it.file.delete() }
+                    snapshot.images.forEach { it.file?.delete() }
                     _state.value = ProductComposerState(publishedProductId = productId)
                 },
                 onFailure = { error -> _state.update { it.copy(isPublishing = false, progress = null, error = error.productComposerMessage()) } },
@@ -163,12 +229,12 @@ class ProductComposerViewModel @Inject constructor(
 
     fun discardDraft() {
         if (state.value.isPublishing) return
-        state.value.images.forEach { it.file.delete() }
+        state.value.images.forEach { it.file?.delete() }
         _state.value = ProductComposerState()
     }
 
     override fun onCleared() {
-        state.value.images.forEach { it.file.delete() }
+        state.value.images.forEach { it.file?.delete() }
         super.onCleared()
     }
 }

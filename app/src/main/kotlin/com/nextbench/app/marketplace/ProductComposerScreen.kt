@@ -89,6 +89,7 @@ fun ProductComposerScreen(
     user: UserData?,
     onOpenProduct: (String) -> Unit,
     onBack: () -> Unit,
+    productId: String? = null,
     modifier: Modifier = Modifier,
     viewModel: ProductComposerViewModel = hiltViewModel(),
 ) {
@@ -105,6 +106,10 @@ fun ProductComposerScreen(
         }
     }
 
+    LaunchedEffect(productId, user?.uid) {
+        productId?.let { viewModel.loadForEdit(it, user) }
+    }
+
     BackHandler(enabled = !state.isPublishing) {
         if (state.hasDraft) showDiscardSheet = true else onBack()
     }
@@ -117,11 +122,22 @@ fun ProductComposerScreen(
             IconButton(onClick = { if (state.hasDraft) showDiscardSheet = true else onBack() }, enabled = !state.isPublishing, modifier = Modifier.semantics { contentDescription = "Back to create choices" }) {
                 Icon(NbIcons.Back, contentDescription = null, tint = NbTheme.colors.inkMuted)
             }
-            Text("List an item", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, modifier = Modifier.weight(1f))
+            Text(if (productId == null) "List an item" else "Edit listing", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, modifier = Modifier.weight(1f))
             if (state.hasDraft) NbPill(label = "Draft", contentColor = NbTheme.colors.brandTeal, modifier = Modifier.padding(end = NbDimens.space8))
         }
 
-        LazyColumn(
+        if (state.isLoading) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator(color = NbTheme.colors.brandTeal)
+            }
+        } else if (productId != null && state.editingProductId == null) {
+            LoadFailure(
+                message = state.error ?: "This listing could not be loaded.",
+                onRetry = { viewModel.loadForEdit(productId, user) },
+                onBack = onBack,
+                modifier = Modifier.weight(1f),
+            )
+        } else LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = NbDimens.space16, vertical = NbDimens.space8),
             verticalArrangement = Arrangement.spacedBy(NbDimens.space16),
@@ -178,12 +194,33 @@ fun ProductComposerScreen(
     if (showDiscardSheet) {
         NbBottomSheet(onDismiss = { showDiscardSheet = false }) {
             Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
-                Text("Discard this listing?", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
-                Text("Your draft and selected images will be removed.", style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
-                NbButton(text = "Discard draft", onClick = { showDiscardSheet = false; viewModel.discardDraft(); onBack() }, modifier = Modifier.fillMaxWidth())
+                Text(if (productId == null) "Discard this listing?" else "Discard your changes?", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                Text(if (productId == null) "Your draft and selected images will be removed." else "Your listing will stay unchanged.", style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
+                NbButton(text = if (productId == null) "Discard draft" else "Discard changes", onClick = { showDiscardSheet = false; viewModel.discardDraft(); onBack() }, modifier = Modifier.fillMaxWidth())
                 NbButton(text = "Keep editing", onClick = { showDiscardSheet = false }, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Ghost)
             }
         }
+    }
+}
+
+@Composable
+private fun LoadFailure(
+    message: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(NbDimens.space24),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(NbIcons.Refresh, contentDescription = null, tint = NbTheme.colors.brandPink, modifier = Modifier.size(34.dp))
+        Spacer(Modifier.height(NbDimens.space12))
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
+        Spacer(Modifier.height(NbDimens.space16))
+        NbButton(text = "Try again", onClick = onRetry, modifier = Modifier.fillMaxWidth())
+        NbButton(text = "Go back", onClick = onBack, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Ghost)
     }
 }
 
@@ -205,7 +242,7 @@ private fun ImageSection(
         Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
             images.forEachIndexed { index, image ->
                 Box(modifier = Modifier.size(112.dp).clip(RoundedCornerShape(NbDimens.radiusMd)).background(NbTheme.colors.surfaceSoft)) {
-                    AsyncImage(model = image.uri, contentDescription = "Listing photo ${index + 1}", modifier = Modifier.fillMaxSize())
+                    AsyncImage(model = image.uri ?: image.remoteUrl, contentDescription = "Listing photo ${index + 1}", modifier = Modifier.fillMaxSize())
                     if (index == 0) NbPill(label = "Cover", contentColor = Color.White, containerColor = Color.Black.copy(alpha = 0.55f), modifier = Modifier.align(Alignment.BottomStart).padding(6.dp))
                     IconButton(onClick = { onRemoveImage(image.id) }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(28.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.56f)).semantics { contentDescription = "Remove listing photo ${index + 1}" }) {
                         Icon(NbIcons.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
@@ -293,7 +330,7 @@ private fun PublishBar(state: ProductComposerState, onPublish: () -> Unit) {
                     LinearProgressIndicator(progress = { state.progress?.fraction ?: 0f }, modifier = Modifier.fillMaxWidth(), color = NbTheme.colors.brandTeal, trackColor = NbTheme.colors.surfaceSoft)
                 }
             }
-            NbButton(text = if (state.isPublishing) "Publishing..." else "Submit listing", onClick = onPublish, enabled = state.canPublish, loading = state.isPublishing, modifier = Modifier.fillMaxWidth())
+            NbButton(text = if (state.isPublishing) "Saving..." else if (state.editingProductId == null) "Submit listing" else "Save changes", onClick = onPublish, enabled = state.canPublish, loading = state.isPublishing, modifier = Modifier.fillMaxWidth())
         }
     }
 }

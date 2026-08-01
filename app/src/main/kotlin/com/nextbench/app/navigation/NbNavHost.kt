@@ -247,9 +247,21 @@ fun NbNavHost(
                 )
             }
         }
-        composable(NbRoute.EditItem.path) {
+        composable(
+            route = NbRoute.EditItem.path,
+            arguments = listOf(navArgument("productId") { type = NavType.StringType }),
+        ) {
             GuardedDestination(navController, NbRoute.EditItem.path, authViewModel) {
-                PlaceholderScreen(NbIcons.Marketplace, "Edit listing", "Update your item details and keep your campus listing current.")
+                ProductComposerScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    productId = it.arguments?.getString("productId"),
+                    onOpenProduct = { productId ->
+                        navController.navigate(NbRoute.product(productId)) {
+                            popUpTo(NbRoute.EditItem.path) { inclusive = true }
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
             }
         }
 
