@@ -455,16 +455,19 @@ private fun PostCard(
 }
 
 @Composable
-private fun PostCardBody(
+internal fun PostCardBody(
     post: Post,
     upvoted: Boolean,
     downvoted: Boolean,
     saved: Boolean,
     interactionsEnabled: Boolean,
     onOpen: () -> Unit,
+    onComments: () -> Unit = onOpen,
+    onAttachment: (String) -> Unit = { onOpen() },
     onProfile: () -> Unit,
     onVote: (PostVote, Boolean) -> Boolean,
     onSave: () -> Unit,
+    expanded: Boolean = false,
 ) {
     var showHeart by remember(post.id) { mutableStateOf(false) }
     var heartEvent by remember(post.id) { mutableLongStateOf(0L) }
@@ -509,10 +512,10 @@ private fun PostCardBody(
                 if (post.title.isNotBlank()) {
                     Text(
                         text = post.title,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = if (expanded) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
                         color = NbTheme.colors.ink,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                        maxLines = if (expanded) Int.MAX_VALUE else 3,
+                        overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
                     )
                 }
                 if (post.content.isNotBlank()) {
@@ -520,13 +523,13 @@ private fun PostCardBody(
                         text = post.content,
                         style = MaterialTheme.typography.bodyLarge,
                         color = NbTheme.colors.inkMuted,
-                        maxLines = ContentPreviewLines,
-                        overflow = TextOverflow.Ellipsis,
+                        maxLines = if (expanded) Int.MAX_VALUE else ContentPreviewLines,
+                        overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
                     )
                 }
 
                 post.poll?.takeIf { it.choices.isNotEmpty() }?.let { poll -> PostPoll(poll) }
-                PostMedia(post = post, onOpen = onOpen)
+                PostMedia(post = post, onAttachment = onAttachment)
             }
 
             androidx.compose.animation.AnimatedVisibility(
@@ -553,7 +556,7 @@ private fun PostCardBody(
             saved = saved,
             enabled = interactionsEnabled,
             onVote = { vote -> onVote(vote, false) },
-            onOpen = onOpen,
+            onComments = onComments,
             onSave = onSave,
         )
     }
@@ -684,7 +687,7 @@ private fun PostPoll(poll: Poll) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PostMedia(post: Post, onOpen: () -> Unit) {
+private fun PostMedia(post: Post, onAttachment: (String) -> Unit) {
     val images = remember(post.imageUrl, post.imageUrls) {
         post.imageUrls.ifEmpty { listOfNotNull(post.imageUrl) }.distinct()
     }
@@ -732,20 +735,20 @@ private fun PostMedia(post: Post, onOpen: () -> Unit) {
             }
         }
     }
-    if (!post.pdfUrl.isNullOrBlank()) {
+    post.pdfUrl?.takeIf(String::isNotBlank)?.let { pdfUrl ->
         MediaAttachment(
             icon = NbIcons.FileText,
             title = "PDF attachment",
             detail = post.pdfPages?.let { "$it ${if (it == 1) "page" else "pages"}" } ?: "Open post to read",
-            onClick = onOpen,
+            onClick = { onAttachment(pdfUrl) },
         )
     }
-    if (!post.videoUrl.isNullOrBlank()) {
+    post.videoUrl?.takeIf(String::isNotBlank)?.let { videoUrl ->
         MediaAttachment(
             icon = NbIcons.Play,
             title = "Video",
             detail = "Open post to watch",
-            onClick = onOpen,
+            onClick = { onAttachment(videoUrl) },
         )
     }
 }
@@ -813,7 +816,7 @@ private fun PostActions(
     saved: Boolean,
     enabled: Boolean,
     onVote: (PostVote) -> Unit,
-    onOpen: () -> Unit,
+    onComments: () -> Unit,
     onSave: () -> Unit,
 ) {
     HorizontalDivider(color = NbTheme.colors.border)
@@ -846,7 +849,7 @@ private fun PostActions(
             label = post.repliesCount.toString(),
             description = "Open comments",
             enabled = true,
-            onClick = onOpen,
+            onClick = onComments,
             horizontalPadding = NbDimens.space4,
         )
         Spacer(Modifier.weight(1f))

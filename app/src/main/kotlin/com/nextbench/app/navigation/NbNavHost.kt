@@ -13,6 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.nextbench.app.auth.AuthGate
@@ -20,6 +23,7 @@ import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.app.auth.requirementForRoute
 import com.nextbench.app.auth.AuthScreen
 import com.nextbench.app.feed.CommunityScreen
+import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.PlaceholderScreen
 import com.nextbench.app.ui.SplashScreen
@@ -147,7 +151,27 @@ fun NbNavHost(
                 PlaceholderScreen(NbIcons.Marketplace, "Listing", "Product details, seller context, and safe in-app messages will appear here.")
             }
         }
-        composable(NbRoute.PostDetail.path) { PlaceholderScreen(NbIcons.Home, "Post", "Read the full conversation and join the discussion here.") }
+        composable(
+            route = NbRoute.PostDetail.path,
+            arguments = listOf(navArgument("postId") { type = NavType.StringType }),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/post/{postId}" },
+                navDeepLink { uriPattern = "nextbench://post/{postId}" },
+            ),
+        ) {
+            PostDetailScreen(
+                user = (session as? SessionState.SignedIn)?.userData,
+                onOpenProfile = { userId ->
+                    navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true }
+                },
+                onSignIn = {
+                    navController.navigate(NbRoute.Login.path) { launchSingleTop = true }
+                },
+                onVerify = {
+                    navController.navigate(NbRoute.Verification.path) { launchSingleTop = true }
+                },
+            )
+        }
         composable(NbRoute.ProfileDetail.path) { GuardedDestination(navController, NbRoute.ProfileDetail.path, authViewModel) { PlaceholderScreen(NbIcons.Profile, "Profile", "See a member's public profile, activity, and listings.") } }
         composable(NbRoute.UsernameProfile.path) { GuardedDestination(navController, NbRoute.UsernameProfile.path, authViewModel) { PlaceholderScreen(NbIcons.Profile, "Profile", "See a member's public profile, activity, and listings.") } }
         composable(NbRoute.Chat.path) { GuardedDestination(navController, NbRoute.Chat.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Conversation", "Your direct conversation will appear here.") } }

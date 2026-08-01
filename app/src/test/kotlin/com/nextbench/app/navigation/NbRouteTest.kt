@@ -11,6 +11,7 @@ class NbRouteTest {
     fun websiteRouteFamiliesHaveStableAndroidPaths() {
         assertEquals("community", NbRoute.Feed.path)
         assertEquals("product/{productId}", NbRoute.ProductDetail.path)
+        assertEquals("post/{postId}", NbRoute.PostDetail.path)
         assertEquals("edit-item/{productId}", NbRoute.EditItem.path)
         assertEquals("messages/club/{clubId}", NbRoute.MessagesClub.path)
         assertEquals("club/{clubId}/settings", NbRoute.ClubSettings.path)
@@ -21,6 +22,7 @@ class NbRouteTest {
     fun routeBuildersEncodeIndividualPathSegments() {
         assertEquals("product/book+%26+notes", NbRoute.product("book & notes"))
         assertEquals("edit-item/book+%26+notes", NbRoute.editItem("book & notes"))
+        assertEquals("post/campus+%26+notes", NbRoute.post("campus & notes"))
         assertEquals("u/maryam%2Fdesigns", NbRoute.username("maryam/designs"))
     }
 
