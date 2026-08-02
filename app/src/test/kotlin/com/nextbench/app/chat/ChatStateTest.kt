@@ -56,6 +56,40 @@ class ChatStateTest {
     }
 
     @Test
+    fun `inbox selection derives rooms in source order and mixed flags choose enable actions`() {
+        val state = MessagesUiState(
+            rooms = listOf(
+                roomItem(id = "first", pinnedBy = listOf("viewer"), mutedBy = listOf("viewer")),
+                roomItem(id = "second", unreadBy = listOf("viewer")),
+            ),
+            viewerId = "viewer",
+            selectedRoomIds = setOf("second", "missing", "first"),
+        )
+
+        assertTrue(state.selectionMode)
+        assertEquals(listOf("first", "second"), state.selectedRooms.map { it.room.id })
+        assertFalse(state.allSelectedPinned)
+        assertFalse(state.allSelectedRead)
+        assertFalse(state.allSelectedMuted)
+    }
+
+    @Test
+    fun `inbox selection detects consistent room flags`() {
+        val state = MessagesUiState(
+            rooms = listOf(
+                roomItem(id = "first", pinnedBy = listOf("viewer"), mutedBy = listOf("viewer")),
+                roomItem(id = "second", pinnedBy = listOf("viewer"), mutedBy = listOf("viewer")),
+            ),
+            viewerId = "viewer",
+            selectedRoomIds = setOf("first", "second"),
+        )
+
+        assertTrue(state.allSelectedPinned)
+        assertTrue(state.allSelectedRead)
+        assertTrue(state.allSelectedMuted)
+    }
+
+    @Test
     fun `pending request can only be answered by recipient`() {
         val room = ChatRoomDetail(
             room = ChatRoom(
@@ -177,6 +211,9 @@ class ChatStateTest {
         other: UserData? = null,
         archivedBy: List<String> = emptyList(),
         deletedBy: List<String> = emptyList(),
+        pinnedBy: List<String> = emptyList(),
+        mutedBy: List<String> = emptyList(),
+        unreadBy: List<String> = emptyList(),
     ) = ChatRoomListItem(
         room = ChatRoom(
             id = id,
@@ -185,6 +222,9 @@ class ChatStateTest {
             lastMessage = message,
             archivedBy = archivedBy,
             deletedBy = deletedBy,
+            pinnedBy = pinnedBy,
+            mutedBy = mutedBy,
+            unreadBy = unreadBy,
         ),
         otherUser = other,
         viewerId = "viewer",

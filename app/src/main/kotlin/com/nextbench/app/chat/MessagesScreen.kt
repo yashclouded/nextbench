@@ -1,5 +1,6 @@
 package com.nextbench.app.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -77,8 +78,11 @@ fun MessagesScreen(
     viewModel: MessagesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var actionItem by remember { mutableStateOf<ChatRoomListItem?>(null) }
+    var confirmBulkDelete by remember { mutableStateOf(false) }
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
+    BackHandler(enabled = state.selectionMode || confirmBulkDelete) {
+        if (confirmBulkDelete) confirmBulkDelete = false else viewModel.clearSelection()
+    }
 
     Column(
         modifier = modifier
@@ -89,7 +93,17 @@ fun MessagesScreen(
             modifier = Modifier.padding(horizontal = NbDimens.space16, vertical = NbDimens.space12),
             verticalArrangement = Arrangement.spacedBy(NbDimens.space12),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (state.selectionMode) {
+                InboxSelectionToolbar(
+                    state = state,
+                    onClose = viewModel::clearSelection,
+                    onPin = viewModel::bulkTogglePin,
+                    onRead = viewModel::bulkToggleRead,
+                    onMute = viewModel::bulkToggleMute,
+                    onArchive = viewModel::bulkToggleArchive,
+                    onDelete = { confirmBulkDelete = true },
+                )
+            } else Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = if (state.showArchived) "Archived" else "Messages",
@@ -106,21 +120,23 @@ fun MessagesScreen(
                     Icon(NbIcons.Messages, contentDescription = null, tint = NbTheme.colors.brandTeal)
                 }
             }
-            NbTextField(
-                value = state.query,
-                onValueChange = viewModel::setQuery,
-                placeholder = "Search people or listings",
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                leadingIcon = { Icon(NbIcons.Search, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(19.dp)) },
-                trailingIcon = if (state.query.isNotEmpty()) {
-                    {
-                        IconButton(onClick = { viewModel.setQuery("") }) {
-                            Icon(NbIcons.Close, contentDescription = "Clear search", tint = NbTheme.colors.inkMuted, modifier = Modifier.size(18.dp))
+            if (!state.selectionMode) {
+                NbTextField(
+                    value = state.query,
+                    onValueChange = viewModel::setQuery,
+                    placeholder = "Search people or listings",
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    leadingIcon = { Icon(NbIcons.Search, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(19.dp)) },
+                    trailingIcon = if (state.query.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { viewModel.setQuery("") }) {
+                                Icon(NbIcons.Close, contentDescription = "Clear search", tint = NbTheme.colors.inkMuted, modifier = Modifier.size(18.dp))
+                            }
                         }
-                    }
-                } else null,
-            )
+                    } else null,
+                )
+            }
         }
 
         HorizontalDivider(color = NbTheme.colors.border)
@@ -138,8 +154,14 @@ fun MessagesScreen(
                         SwipeConversationRow(
                             item = item,
                             busy = item.room.id in state.busyRoomIds,
-                            onClick = { onOpenRoom(item.room.id) },
-                            onLongPress = { actionItem = item },
+                            selectionMode = state.selectionMode,
+                            selected = item.room.id in state.selectedRoomIds,
+                            onClick = {
+                                if (state.selectionMode) viewModel.toggleSelection(item) else onOpenRoom(item.room.id)
+                            },
+                            onLongPress = {
+                                viewModel.toggleSelection(item)
+                            },
                             onToggleRead = { viewModel.toggleRead(item) },
                             onToggleArchive = { viewModel.toggleArchive(item) },
                         )
@@ -159,18 +181,52 @@ fun MessagesScreen(
             }
         }
     }
-    actionItem?.let { item ->
-        ConversationActionSheet(
-            item = item,
-            busy = item.room.id in state.busyRoomIds,
-            onOpen = { actionItem = null; onOpenRoom(item.room.id) },
-            onPin = { if (viewModel.togglePin(item)) actionItem = null },
-            onRead = { if (viewModel.toggleRead(item)) actionItem = null },
-            onMute = { if (viewModel.toggleMute(item)) actionItem = null },
-            onArchive = { if (viewModel.toggleArchive(item)) actionItem = null },
-            onDelete = { if (viewModel.delete(item)) actionItem = null },
-            onDismiss = { actionItem = null },
+    if (confirmBulkDelete) {
+        BulkDeleteSheet(
+            count = state.selectedRoomIds.size,
+            busy = state.isBulkActionRunning,
+            onConfirm = { if (viewModel.bulkDelete()) confirmBulkDelete = false },
+            onDismiss = { if (!state.isBulkActionRunning) confirmBulkDelete = false },
         )
+    }
+}
+
+@Composable
+private fun InboxSelectionToolbar(
+    state: MessagesUiState,
+    onClose: () -> Unit,
+    onPin: () -> Boolean,
+    onRead: () -> Boolean,
+    onMute: () -> Boolean,
+    onArchive: () -> Boolean,
+    onDelete: () -> Unit,
+) {
+    val busy = state.isBulkActionRunning
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().height(42.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onClose, enabled = !busy, modifier = Modifier.size(40.dp)) { Icon(NbIcons.Close, contentDescription = "Exit conversation selection", tint = NbTheme.colors.ink) }
+            Text("${state.selectedRoomIds.size} selected", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, modifier = Modifier.weight(1f))
+        }
+        Row(modifier = Modifier.fillMaxWidth().height(44.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            InboxBulkButton(if (state.allSelectedPinned) NbIcons.Bookmark else NbIcons.BookmarkFilled, if (state.allSelectedPinned) "Unpin selected" else "Pin selected", busy) { onPin() }
+            InboxBulkButton(if (state.allSelectedRead) NbIcons.Messages else NbIcons.Check, if (state.allSelectedRead) "Mark selected unread" else "Mark selected read", busy) { onRead() }
+            InboxBulkButton(if (state.allSelectedMuted) NbIcons.Volume else NbIcons.VolumeOff, if (state.allSelectedMuted) "Unmute selected" else "Mute selected", busy) { onMute() }
+            InboxBulkButton(NbIcons.Archive, if (state.showArchived) "Restore selected" else "Archive selected", busy) { onArchive() }
+            InboxBulkButton(NbIcons.Trash, "Remove selected", busy, NbTheme.colors.brandPink, onDelete)
+        }
+    }
+}
+
+@Composable
+private fun InboxBulkButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    busy: Boolean,
+    tint: Color = NbTheme.colors.inkMuted,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = !busy, modifier = Modifier.size(38.dp).semantics { contentDescription = description }) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -201,6 +257,8 @@ private fun ArchiveToggle(showArchived: Boolean, count: Int, onClick: () -> Unit
 private fun SwipeConversationRow(
     item: ChatRoomListItem,
     busy: Boolean,
+    selectionMode: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onToggleRead: () -> Unit,
@@ -219,8 +277,8 @@ private fun SwipeConversationRow(
     )
     SwipeToDismissBox(
         state = state,
-        enableDismissFromStartToEnd = !busy,
-        enableDismissFromEndToStart = !busy,
+        enableDismissFromStartToEnd = !busy && !selectionMode,
+        enableDismissFromEndToStart = !busy && !selectionMode,
         backgroundContent = {
             Row(
                 modifier = Modifier.fillMaxSize().background(NbTheme.colors.surfaceSoft).padding(horizontal = NbDimens.space20),
@@ -240,7 +298,7 @@ private fun SwipeConversationRow(
             }
         },
     ) {
-        ConversationRow(item = item, busy = busy, onClick = onClick, onLongPress = onLongPress)
+        ConversationRow(item = item, busy = busy, selected = selected, selectionMode = selectionMode, onClick = onClick, onLongPress = onLongPress)
     }
 }
 
@@ -253,7 +311,7 @@ private fun SwipeHint(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 }
 
 @Composable
-private fun ConversationRow(item: ChatRoomListItem, busy: Boolean, onClick: () -> Unit, onLongPress: () -> Unit) {
+private fun ConversationRow(item: ChatRoomListItem, busy: Boolean, selected: Boolean, selectionMode: Boolean, onClick: () -> Unit, onLongPress: () -> Unit) {
     val other = item.otherUser
     val name = other?.name?.ifBlank { null } ?: "NextBench member"
     val preview = item.room.lastMessage?.takeIf(String::isNotBlank)
@@ -262,7 +320,7 @@ private fun ConversationRow(item: ChatRoomListItem, busy: Boolean, onClick: () -
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(NbTheme.colors.surfaceBase)
+            .background(if (selected) NbTheme.colors.brandTeal.copy(alpha = 0.08f) else NbTheme.colors.surfaceBase)
             .pointerInput(item.room.id, busy) {
                 detectTapGestures(
                     onTap = { if (!busy) onClick() },
@@ -272,6 +330,11 @@ private fun ConversationRow(item: ChatRoomListItem, busy: Boolean, onClick: () -
             .padding(horizontal = NbDimens.space16, vertical = NbDimens.space14),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selectionMode) {
+            Box(modifier = Modifier.padding(end = NbDimens.space12).size(24.dp).clip(CircleShape).background(if (selected) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft), contentAlignment = Alignment.Center) {
+                if (selected) Icon(NbIcons.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(15.dp))
+            }
+        }
         Box {
             NbAvatar(imageUrl = other?.profilePicture, name = name, size = NbDimens.avatarLg)
             if (item.unread) {
@@ -309,63 +372,16 @@ private fun ConversationRow(item: ChatRoomListItem, busy: Boolean, onClick: () -
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ConversationActionSheet(
-    item: ChatRoomListItem,
-    busy: Boolean,
-    onOpen: () -> Unit,
-    onPin: () -> Unit,
-    onRead: () -> Unit,
-    onMute: () -> Unit,
-    onArchive: () -> Unit,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val other = item.otherUser
-    val name = other?.name?.ifBlank { null } ?: "NextBench member"
-    var confirmDelete by remember(item.room.id) { mutableStateOf(false) }
+private fun BulkDeleteSheet(count: Int, busy: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     NbBottomSheet(onDismiss = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = NbDimens.space8)) {
-                NbAvatar(imageUrl = other?.profilePicture, name = name, size = NbDimens.avatarLg)
-                Column(modifier = Modifier.padding(start = NbDimens.space12).weight(1f)) {
-                    Text(name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(item.room.lastMessage?.takeIf(String::isNotBlank) ?: "No messages yet", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if (confirmDelete) {
-                Text("Remove this conversation?", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
-                Text("It will return if a new message arrives.", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
-                Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space8), modifier = Modifier.padding(top = NbDimens.space8)) {
-                    NbButton("Cancel", { confirmDelete = false }, modifier = Modifier.weight(1f), variant = NbButtonVariant.Secondary)
-                    NbButton("Remove", onDelete, modifier = Modifier.weight(1f), enabled = !busy, variant = NbButtonVariant.Primary)
-                }
-            } else {
-                ConversationActionRow(NbIcons.ArrowRight, "Open conversation", onOpen, busy)
-                ConversationActionRow(if (item.pinned) NbIcons.Bookmark else NbIcons.BookmarkFilled, if (item.pinned) "Unpin" else "Pin", onPin, busy)
-                ConversationActionRow(if (item.hasUnreadActivity) NbIcons.Check else NbIcons.Messages, if (item.hasUnreadActivity) "Mark as read" else "Mark as unread", onRead, busy)
-                ConversationActionRow(if (item.muted) NbIcons.Volume else NbIcons.VolumeOff, if (item.muted) "Unmute notifications" else "Mute notifications", onMute, busy)
-                ConversationActionRow(NbIcons.Archive, if (item.archived) "Restore to inbox" else "Archive", onArchive, busy)
-                ConversationActionRow(NbIcons.Trash, "Remove for me", { confirmDelete = true }, busy, NbTheme.colors.brandPink)
+        Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+            Text("Remove $count conversation${if (count == 1) "" else "s"}?", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+            Text("Messages are not deleted. A conversation returns if it receives new activity.", style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
+            Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+                NbButton("Cancel", onDismiss, enabled = !busy, modifier = Modifier.weight(1f), variant = NbButtonVariant.Secondary)
+                NbButton("Remove", onConfirm, enabled = count > 0 && !busy, loading = busy, modifier = Modifier.weight(1f), variant = NbButtonVariant.Primary)
             }
         }
-    }
-}
-
-@Composable
-private fun ConversationActionRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    disabled: Boolean,
-    tint: Color = NbTheme.colors.ink,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(NbDimens.radiusSm)).clickable(enabled = !disabled, onClick = onClick).padding(vertical = NbDimens.space12),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
-    ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium), color = tint, modifier = Modifier.weight(1f))
     }
 }
 

@@ -242,6 +242,24 @@ class ChatRepositoryContractTest {
     }
 
     @Test
+    fun `inbox bulk operations preserve per-user room flags`() {
+        val uid = "viewer"
+
+        val markRead = inboxBulkPayload(uid, InboxBulkOperation.MarkRead)
+        val delete = inboxBulkPayload(uid, InboxBulkOperation.Delete)
+
+        assertEquals(setOf("unreadBy", "deletedBy"), markRead.keys)
+        assertEquals(setOf("unreadBy", "deletedBy"), delete.keys)
+        assertEquals(setOf("pinnedBy"), inboxBulkPayload(uid, InboxBulkOperation.Pin).keys)
+        assertEquals(setOf("pinnedBy"), inboxBulkPayload(uid, InboxBulkOperation.Unpin).keys)
+        assertEquals(setOf("mutedBy"), inboxBulkPayload(uid, InboxBulkOperation.Mute).keys)
+        assertEquals(setOf("mutedBy"), inboxBulkPayload(uid, InboxBulkOperation.Unmute).keys)
+        assertEquals(setOf("archivedBy"), inboxBulkPayload(uid, InboxBulkOperation.Archive).keys)
+        assertEquals(setOf("archivedBy"), inboxBulkPayload(uid, InboxBulkOperation.Restore).keys)
+        assertEquals(setOf("unreadBy"), inboxBulkPayload(uid, InboxBulkOperation.MarkUnread).keys)
+    }
+
+    @Test
     fun `block state is symmetric for send policy`() {
         assertTrue(ChatBlockState(blockedByViewer = true).isBlocked)
         assertTrue(ChatBlockState(blockedViewer = true).isBlocked)

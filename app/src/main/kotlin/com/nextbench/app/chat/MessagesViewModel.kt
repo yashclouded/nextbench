@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.ChatRepository
 import com.nextbench.data.firebase.ChatRoomListItem
+import com.nextbench.data.firebase.InboxBulkOperation
 import com.nextbench.data.model.UserData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -25,6 +26,8 @@ data class MessagesUiState(
     val error: String? = null,
     val viewerId: String? = null,
     val busyRoomIds: Set<String> = emptySet(),
+    val selectedRoomIds: Set<String> = emptySet(),
+    val isBulkActionRunning: Boolean = false,
     val notice: ChatNotice? = null,
 ) {
     val visibleRooms: List<ChatRoomListItem>
@@ -42,6 +45,12 @@ data class MessagesUiState(
 
     val archivedCount: Int
         get() = rooms.count { item -> !item.deleted && item.archived }
+    val selectedRooms: List<ChatRoomListItem>
+        get() = rooms.filter { it.room.id in selectedRoomIds }
+    val selectionMode: Boolean get() = selectedRoomIds.isNotEmpty()
+    val allSelectedPinned: Boolean get() = selectedRooms.isNotEmpty() && selectedRooms.all(ChatRoomListItem::pinned)
+    val allSelectedRead: Boolean get() = selectedRooms.isNotEmpty() && selectedRooms.none(ChatRoomListItem::hasUnreadActivity)
+    val allSelectedMuted: Boolean get() = selectedRooms.isNotEmpty() && selectedRooms.all(ChatRoomListItem::muted)
 }
 
 @HiltViewModel
@@ -75,6 +84,7 @@ class MessagesViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             rooms = rooms,
+                            selectedRoomIds = it.selectedRoomIds.intersect(rooms.map { room -> room.room.id }.toSet()),
                             isLoading = false,
                             error = null,
                         )
@@ -88,8 +98,34 @@ class MessagesViewModel @Inject constructor(
     }
 
     fun toggleArchived() {
-        _state.update { it.copy(showArchived = !it.showArchived) }
+        _state.update { it.copy(showArchived = !it.showArchived, selectedRoomIds = emptySet()) }
     }
+
+    fun toggleSelection(item: ChatRoomListItem): Boolean {
+        val roomId = item.room.id
+        if (roomId.isBlank() || roomId in state.value.busyRoomIds) return false
+        val selected = state.value.selectedRoomIds
+        if (roomId !in selected && selected.size >= ChatRepository.MaxInboxSelection) {
+            showNotice("Select up to ${ChatRepository.MaxInboxSelection} conversations at once.", ChatNoticeKind.Info)
+            return false
+        }
+        _state.update {
+            it.copy(selectedRoomIds = if (roomId in it.selectedRoomIds) it.selectedRoomIds - roomId else it.selectedRoomIds + roomId)
+        }
+        return true
+    }
+
+    fun clearSelection() = _state.update { it.copy(selectedRoomIds = emptySet()) }
+
+    fun bulkTogglePin(): Boolean = bulkAction(if (state.value.allSelectedPinned) InboxBulkOperation.Unpin else InboxBulkOperation.Pin)
+
+    fun bulkToggleRead(): Boolean = bulkAction(if (state.value.allSelectedRead) InboxBulkOperation.MarkUnread else InboxBulkOperation.MarkRead)
+
+    fun bulkToggleMute(): Boolean = bulkAction(if (state.value.allSelectedMuted) InboxBulkOperation.Unmute else InboxBulkOperation.Mute)
+
+    fun bulkToggleArchive(): Boolean = bulkAction(if (state.value.showArchived) InboxBulkOperation.Restore else InboxBulkOperation.Archive)
+
+    fun bulkDelete(): Boolean = bulkAction(InboxBulkOperation.Delete)
 
     fun toggleArchive(item: ChatRoomListItem): Boolean = roomAction(
         item = item,
@@ -158,7 +194,62 @@ class MessagesViewModel @Inject constructor(
         return true
     }
 
+    private fun bulkAction(operation: InboxBulkOperation): Boolean {
+        val uid = viewer?.uid ?: return false
+        val selectedIds = state.value.selectedRoomIds
+        if (selectedIds.isEmpty() || state.value.isBulkActionRunning) return false
+        _state.update { it.copy(isBulkActionRunning = true, busyRoomIds = it.busyRoomIds + selectedIds) }
+        viewModelScope.launch {
+            repository.updateInboxBulk(selectedIds, uid, operation).fold(
+                onSuccess = { result ->
+                    val message = operation.resultMessage(result.updatedRooms, result.failedRooms)
+                    _state.update {
+                        it.copy(
+                            isBulkActionRunning = false,
+                            busyRoomIds = it.busyRoomIds - selectedIds,
+                            selectedRoomIds = emptySet(),
+                            notice = ChatNotice(
+                                ++noticeId,
+                                message,
+                                if (result.updatedRooms > 0) ChatNoticeKind.Success else ChatNoticeKind.Error,
+                            ),
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _state.update {
+                        it.copy(
+                            isBulkActionRunning = false,
+                            busyRoomIds = it.busyRoomIds - selectedIds,
+                            notice = ChatNotice(++noticeId, error.chatMessage(), ChatNoticeKind.Error),
+                        )
+                    }
+                },
+            )
+        }
+        return true
+    }
+
+    private fun showNotice(message: String, kind: ChatNoticeKind) {
+        _state.update { it.copy(notice = ChatNotice(++noticeId, message, kind)) }
+    }
+
     companion object {
         private const val MaxSearchLength = 80
     }
+}
+
+private fun InboxBulkOperation.resultMessage(updated: Int, failed: Int): String {
+    val action = when (this) {
+        InboxBulkOperation.Pin -> "Pinned"
+        InboxBulkOperation.Unpin -> "Unpinned"
+        InboxBulkOperation.MarkRead -> "Marked read"
+        InboxBulkOperation.MarkUnread -> "Marked unread"
+        InboxBulkOperation.Mute -> "Muted"
+        InboxBulkOperation.Unmute -> "Unmuted"
+        InboxBulkOperation.Archive -> "Archived"
+        InboxBulkOperation.Restore -> "Restored"
+        InboxBulkOperation.Delete -> "Removed"
+    }
+    return if (failed > 0) "$action $updated conversation${if (updated == 1) "" else "s"}; $failed failed" else "$action $updated conversation${if (updated == 1) "" else "s"}"
 }

@@ -75,6 +75,23 @@ data class ForwardResult(
     val failedTargets: Int,
 )
 
+enum class InboxBulkOperation {
+    Pin,
+    Unpin,
+    MarkRead,
+    MarkUnread,
+    Mute,
+    Unmute,
+    Archive,
+    Restore,
+    Delete,
+}
+
+data class InboxBulkResult(
+    val updatedRooms: Int,
+    val failedRooms: Int,
+)
+
 /**
  * Shared Firestore boundary for direct conversations. The field names and write order mirror
  * the web client so a room created on one platform is immediately usable on the other.
@@ -514,6 +531,36 @@ class ChatRepository @Inject constructor(
         ).await()
     }
 
+    suspend fun updateInboxBulk(
+        roomIds: Collection<String>,
+        uid: String,
+        operation: InboxBulkOperation,
+    ): Result<InboxBulkResult> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val ids = roomIds.map(String::trim).filter(String::isNotBlank).distinct()
+        require(ids.isNotEmpty()) { "Select at least one conversation." }
+        require(ids.size <= MaxInboxSelection) { "Select up to $MaxInboxSelection conversations at once." }
+        val payload = inboxBulkPayload(uid, operation)
+        var updated = 0
+        var failed = 0
+        ids.chunked(FirestoreWriteBatchLimit).forEach { chunk ->
+            val batchSucceeded = runCatching {
+                val batch = refs.chatRooms.firestore.batch()
+                chunk.forEach { roomId -> batch.update(refs.chatRoom(roomId), payload) }
+                batch.commit().await()
+            }.isSuccess
+            if (batchSucceeded) {
+                updated += chunk.size
+            } else {
+                chunk.forEach { roomId ->
+                    if (runCatching { refs.chatRoom(roomId).update(payload).await() }.isSuccess) updated++ else failed++
+                }
+            }
+        }
+        InboxBulkResult(updatedRooms = updated, failedRooms = failed)
+    }
+
     suspend fun acceptRequest(roomId: String, uid: String): Result<Unit> = runCatching {
         ensureConfigured()
         requireAuthenticated(uid)
@@ -727,6 +774,7 @@ class ChatRepository @Inject constructor(
         const val MessageWindowSize = 100L
         const val MaxForwardMessages = 20
         const val MaxForwardTargets = 10
+        const val MaxInboxSelection = 100
         private const val FirestoreWriteBatchLimit = 450
     }
 }
@@ -964,6 +1012,24 @@ internal fun deletedForEveryonePayload(): Map<String, Any?> = mapOf(
     "fileSize" to FieldValue.delete(),
     "mimeType" to FieldValue.delete(),
 )
+
+internal fun inboxBulkPayload(uid: String, operation: InboxBulkOperation): Map<String, Any?> = when (operation) {
+    InboxBulkOperation.Pin -> mapOf("pinnedBy" to FieldValue.arrayUnion(uid))
+    InboxBulkOperation.Unpin -> mapOf("pinnedBy" to FieldValue.arrayRemove(uid))
+    InboxBulkOperation.MarkRead -> mapOf(
+        "unreadBy" to FieldValue.arrayRemove(uid),
+        "deletedBy" to FieldValue.arrayRemove(uid),
+    )
+    InboxBulkOperation.MarkUnread -> mapOf("unreadBy" to FieldValue.arrayUnion(uid))
+    InboxBulkOperation.Mute -> mapOf("mutedBy" to FieldValue.arrayUnion(uid))
+    InboxBulkOperation.Unmute -> mapOf("mutedBy" to FieldValue.arrayRemove(uid))
+    InboxBulkOperation.Archive -> mapOf("archivedBy" to FieldValue.arrayUnion(uid))
+    InboxBulkOperation.Restore -> mapOf("archivedBy" to FieldValue.arrayRemove(uid))
+    InboxBulkOperation.Delete -> mapOf(
+        "deletedBy" to FieldValue.arrayUnion(uid),
+        "unreadBy" to FieldValue.arrayRemove(uid),
+    )
+}
 
 private fun normalizedMessageIds(ids: List<String>): List<String> {
     val normalized = ids.map(String::trim).filter(String::isNotBlank).distinct()
