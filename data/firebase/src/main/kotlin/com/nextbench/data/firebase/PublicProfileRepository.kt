@@ -8,8 +8,6 @@ import com.nextbench.data.model.UserData
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 
 data class PublicProfileContent(
@@ -45,7 +43,7 @@ class PublicProfileRepository @Inject constructor(
         requireNotNull(auth.currentUser?.uid) { "Sign in to view profiles." }
         require(userId.isNotBlank()) { "Missing profile id." }
         val content = functions.getPublicProfileContent(userId).toPublicProfileContent()
-        if (content.user == null) content else content.copy(stats = loadStats(userId, auth.currentUser?.uid.orEmpty()))
+        if (content.user == null) content else content.copy(stats = loadStats(userId))
     }
 
     suspend fun resolveUsername(username: String): Result<String?> = runCatching {
@@ -72,33 +70,9 @@ class PublicProfileRepository @Inject constructor(
         refs.blocks.document("${firstId}_$secondId").get().await().exists() ||
             refs.blocks.document("${secondId}_$firstId").get().await().exists()
 
-    private suspend fun loadStats(targetId: String, viewerId: String): PublicProfileStats = coroutineScope {
-        val followersDeferred = async { refs.follows.whereEqualTo("followingId", targetId).get().await() }
-        val followingDeferred = async { refs.follows.whereEqualTo("followerId", targetId).get().await() }
-        val followersSnap = followersDeferred.await()
-        val followingSnap = followingDeferred.await()
-        val followerIds = followersSnap.documents.mapNotNull { it.getString("followerId") }.distinct()
-        val followingIds = followingSnap.documents.mapNotNull { it.getString("followingId") }.distinct()
-        val viewerFollowing = async { refs.follows.whereEqualTo("followerId", viewerId).get().await() }
-        val viewerFollowers = async { refs.follows.whereEqualTo("followingId", viewerId).get().await() }
-        val viewerNetwork = (viewerFollowing.await().documents.mapNotNull { it.getString("followingId") } + viewerFollowers.await().documents.mapNotNull { it.getString("followerId") }).toSet()
-        val targetNetwork = (followerIds + followingIds).toSet()
-        val mutualIds = targetNetwork.intersect(viewerNetwork).filter { it != viewerId }.toList()
-        val displayIds = (followerIds.take(MaxListUsers) + followingIds.take(MaxListUsers) + mutualIds.take(MaxMutualUsers)).distinct()
-        val users = displayIds.chunked(MaxUserBatch)
-            .flatMap { ids -> functions.getPublicUsers(ids).mapNotNull(Map<String, Any?>::toPublicUser) }
-            .associateBy(UserData::uid)
-        PublicProfileStats(
-            followersCount = followerIds.size,
-            followingCount = followingIds.size,
-            followers = followerIds.take(MaxListUsers).mapNotNull(users::get),
-            following = followingIds.take(MaxListUsers).mapNotNull(users::get),
-            mutuals = mutualIds.take(MaxMutualUsers).mapNotNull(users::get),
-            mutualCount = mutualIds.size,
-            isFollowing = viewerId in followerIds,
-            isFollowedBy = viewerId in followingIds,
-        )
-    }
+    private suspend fun loadStats(targetId: String): PublicProfileStats =
+        runCatching { functions.getAndroidPublicProfileStats(targetId).toPublicProfileStats() }
+            .getOrDefault(PublicProfileStats())
 
     suspend fun toggleFollow(targetId: String, viewer: UserData): Result<Boolean> = runCatching {
         ensureConfigured()
@@ -146,17 +120,23 @@ class PublicProfileRepository @Inject constructor(
         refs.user(uid).update("chatPrivacy.followersOnly", enabled).await()
     }
 
-    companion object {
-        private const val MaxListUsers = 50
-        private const val MaxMutualUsers = 3
-        private const val MaxUserBatch = 30
-    }
 }
 
 internal fun Map<String, Any?>.toPublicProfileContent(): PublicProfileContent = PublicProfileContent(
     user = this["user"].asStringMap().toPublicUser(),
     listings = mapList("products").mapNotNull(Map<String, Any?>::toProduct),
     posts = mapList("posts").mapNotNull(Map<String, Any?>::toPost),
+)
+
+internal fun Map<String, Any?>.toPublicProfileStats(): PublicProfileStats = PublicProfileStats(
+    followersCount = number("followersCount"),
+    followingCount = number("followingCount"),
+    followers = mapList("followers").mapNotNull(Map<String, Any?>::toPublicUser),
+    following = mapList("following").mapNotNull(Map<String, Any?>::toPublicUser),
+    mutuals = mapList("mutuals").mapNotNull(Map<String, Any?>::toPublicUser),
+    mutualCount = number("mutualCount"),
+    isFollowing = this["isFollowing"] as? Boolean ?: false,
+    isFollowedBy = this["isFollowedBy"] as? Boolean ?: false,
 )
 
 internal fun Map<String, Any?>.toPublicUser(): UserData? {
@@ -183,6 +163,8 @@ private fun Map<String, Any?>.string(key: String, fallback: String = ""): String
 
 private fun Map<String, Any?>.nullableString(key: String): String? =
     get(key)?.toString()?.takeUnless { it == "null" || it.isBlank() }
+
+private fun Map<String, Any?>.number(key: String): Int = (get(key) as? Number)?.toInt() ?: 0
 
 private class PublicProfileConfigurationException : IllegalStateException(
     "Firebase is not configured for this build. Add app/google-services.json and rebuild.",

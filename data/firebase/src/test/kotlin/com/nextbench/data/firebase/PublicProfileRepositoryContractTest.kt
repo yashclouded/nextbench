@@ -56,4 +56,24 @@ class PublicProfileRepositoryContractTest {
         assertTrue(!stats.isFollowedBy)
         assertEquals(4, stats.followersCount)
     }
+
+    @Test
+    fun `android profile stats mapper keeps counts and public relationship users`() {
+        val mapped = mapOf<String, Any?>(
+            "followersCount" to 12L,
+            "followingCount" to 7,
+            "mutualCount" to 2L,
+            "isFollowing" to true,
+            "isFollowedBy" to false,
+            "followers" to listOf(mapOf<String, Any?>("id" to "follower-1", "name" to "Maya")),
+            "following" to listOf(mapOf<String, Any?>("id" to "following-1", "name" to "Noah")),
+            "mutuals" to listOf(mapOf<String, Any?>("id" to "mutual-1", "name" to "Aarav")),
+        ).toPublicProfileStats()
+
+        assertEquals(12, mapped.followersCount)
+        assertEquals(7, mapped.followingCount)
+        assertEquals(2, mapped.mutualCount)
+        assertTrue(mapped.isFollowing)
+        assertEquals("mutual-1", mapped.mutuals.single().uid)
+    }
 }

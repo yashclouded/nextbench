@@ -71,6 +71,41 @@ export const removeAndroidPushToken = onCall(async (request) => {
   return { success: true };
 });
 
+/** Returns relationship summaries for the Android public-profile surface. */
+export const getAndroidPublicProfileStats = onCall(async (request) => {
+  const viewerId = requireAuth(request.auth?.uid);
+  const targetId = stringValue(request.data?.userId);
+  if (!targetId) throw new HttpsError("invalid-argument", "Missing userId.");
+  if (viewerId !== targetId && await hasBlockRelationship(viewerId, targetId)) return emptyProfileStats();
+
+  const [followersSnap, followingSnap, viewerFollowingSnap, viewerFollowersSnap] = await Promise.all([
+    db.collection("follows").where("followingId", "==", targetId).limit(100).get(),
+    db.collection("follows").where("followerId", "==", targetId).limit(100).get(),
+    db.collection("follows").where("followerId", "==", viewerId).limit(100).get(),
+    db.collection("follows").where("followingId", "==", viewerId).limit(100).get(),
+  ]);
+  const followerIds = uniqueIds(followersSnap.docs.map((doc) => stringValue(doc.get("followerId"))));
+  const followingIds = uniqueIds(followingSnap.docs.map((doc) => stringValue(doc.get("followingId"))));
+  const viewerFollowingIds = new Set(uniqueIds(viewerFollowingSnap.docs.map((doc) => stringValue(doc.get("followingId")))));
+  const viewerFollowerIds = new Set(uniqueIds(viewerFollowersSnap.docs.map((doc) => stringValue(doc.get("followerId")))));
+  const targetNetwork = new Set([...followerIds, ...followingIds]);
+  const mutualIds = [...targetNetwork].filter((id) => id !== viewerId && (viewerFollowingIds.has(id) || viewerFollowerIds.has(id)));
+  const displayIds = uniqueIds([...followerIds.slice(0, 50), ...followingIds.slice(0, 50), ...mutualIds.slice(0, 3)]);
+  const userDocs = displayIds.length > 0 ? await db.getAll(...displayIds.map((id) => db.collection("users").doc(id))) : [];
+  const users = new Map(userDocs.map((doc) => [doc.id, publicProfileUser(doc)]));
+
+  return {
+    followersCount: followerIds.length,
+    followingCount: followingIds.length,
+    followers: followerIds.slice(0, 50).map((id) => users.get(id)).filter(Boolean),
+    following: followingIds.slice(0, 50).map((id) => users.get(id)).filter(Boolean),
+    mutuals: mutualIds.slice(0, 3).map((id) => users.get(id)).filter(Boolean),
+    mutualCount: mutualIds.length,
+    isFollowing: followerIds.includes(viewerId),
+    isFollowedBy: followingIds.includes(viewerId),
+  };
+});
+
 /** Sends Android chat pushes and creates the matching in-app notifications. */
 export const notifyAndroidOnNewMessage = onDocumentCreated(
   "chatRooms/{roomId}/messages/{messageId}",
@@ -168,6 +203,46 @@ export const notifyAndroidOnNewMessage = onDocumentCreated(
 function requireAuth(uid: string | undefined): string {
   if (!uid) throw new HttpsError("unauthenticated", "Authentication is required.");
   return uid;
+}
+
+async function hasBlockRelationship(firstId: string, secondId: string): Promise<boolean> {
+  const [first, second] = await Promise.all([
+    db.collection("blocks").doc(`${firstId}_${secondId}`).get(),
+    db.collection("blocks").doc(`${secondId}_${firstId}`).get(),
+  ]);
+  return first.exists || second.exists;
+}
+
+function uniqueIds(ids: string[]): string[] {
+  return [...new Set(ids.filter((id) => id.length > 0))];
+}
+
+function publicProfileUser(doc: FirebaseFirestore.DocumentSnapshot): Record<string, unknown> {
+  const data = doc.data() ?? {};
+  return {
+    id: doc.id,
+    name: stringValue(data.name) || "Student",
+    username: stringValue(data.username) || null,
+    school: stringValue(data.school),
+    city: stringValue(data.city),
+    about: stringValue(data.about) || null,
+    profilePicture: stringValue(data.profilePicture) || null,
+    verified: data.verified === true,
+    reputation: typeof data.reputation === "number" ? data.reputation : 0,
+  };
+}
+
+function emptyProfileStats() {
+  return {
+    followersCount: 0,
+    followingCount: 0,
+    followers: [],
+    following: [],
+    mutuals: [],
+    mutualCount: 0,
+    isFollowing: false,
+    isFollowedBy: false,
+  };
 }
 
 function validateToken(value: unknown): string {

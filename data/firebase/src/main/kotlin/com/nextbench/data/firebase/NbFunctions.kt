@@ -43,6 +43,9 @@ class NbFunctions @Inject constructor(
     suspend fun removeAndroidPushToken(token: String): Boolean =
         callMap("removeAndroidPushToken", mapOf("token" to token))["success"] as? Boolean ?: false
 
+    suspend fun getAndroidPublicProfileStats(userId: String): Map<String, Any?> =
+        callMap("getAndroidPublicProfileStats", mapOf("userId" to userId))
+
     suspend fun getPublicProfile(userId: String): Map<String, Any?>? =
         callMap("getPublicProfile", mapOf("userId" to userId))["user"].asNullableStringMap()
 
