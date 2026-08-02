@@ -47,6 +47,12 @@ data class ChatRoomUiState(
     val isSending: Boolean = false,
     val isPreparingAttachment: Boolean = false,
     val isSendingAttachment: Boolean = false,
+    val isRecordingVoice: Boolean = false,
+    val voiceRecordingDurationSeconds: Long = 0L,
+    val voiceRecordingLevels: List<Float> = emptyList(),
+    val isSendingVoice: Boolean = false,
+    val voiceUploadProgress: Int = 0,
+    val voicePlayback: ChatVoicePlaybackState = ChatVoicePlaybackState(),
     val actionMessage: Message? = null,
     val isActingOnRequest: Boolean = false,
     val error: String? = null,
@@ -60,7 +66,8 @@ data class ChatRoomUiState(
         pendingRequest && !viewerId.isNullOrBlank() && pendingRequester != viewerId
 
     fun canSend(viewerId: String?): Boolean =
-        !viewerId.isNullOrBlank() && room != null && !pendingRequest && !blocked && !isSending && !isSendingAttachment
+        !viewerId.isNullOrBlank() && room != null && !pendingRequest && !blocked &&
+            !isSending && !isSendingAttachment && !isSendingVoice && !isRecordingVoice
 }
 
 @HiltViewModel
@@ -69,6 +76,8 @@ class ChatRoomViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: ChatRepository,
     private val mediaStore: ChatMediaStore,
+    private val voiceRecorder: ChatVoiceRecorder,
+    private val voicePlayer: ChatVoicePlayer,
 ) : ViewModel() {
     private val roomId: String = requireNotNull(savedStateHandle["roomId"]) {
         "Conversation requires a roomId navigation argument."
@@ -82,14 +91,25 @@ class ChatRoomViewModel @Inject constructor(
     private var blockJob: Job? = null
     private var typingIdleJob: Job? = null
     private var typingRefreshJob: Job? = null
+    private var voiceRecordingJob: Job? = null
     private var typingActive = false
     private var noticeId = 0L
+
+    init {
+        viewModelScope.launch {
+            voicePlayer.state.collect { playback ->
+                _state.update { it.copy(voicePlayback = playback) }
+            }
+        }
+    }
 
     fun syncViewer(user: UserData?) {
         if (viewer?.uid == user?.uid && (viewer == null) == (user == null)) return
         roomJob?.cancel()
         messagesJob?.cancel()
         blockJob?.cancel()
+        cancelVoiceRecording()
+        voicePlayer.stop()
         stopTyping()
         viewer = user
         _state.value = ChatRoomUiState(isLoading = user != null)
@@ -206,7 +226,7 @@ class ChatRoomViewModel @Inject constructor(
         val user = viewer ?: return false
         val snapshot = state.value
         val room = snapshot.room?.room ?: return false
-        if (snapshot.isSending || snapshot.isSendingAttachment || snapshot.blocked || room.status == "pending") return false
+        if (snapshot.isSending || snapshot.isSendingAttachment || snapshot.isSendingVoice || snapshot.isRecordingVoice || snapshot.blocked || room.status == "pending") return false
         val text = snapshot.composerText.trim()
         if (text.isEmpty()) return false
         _state.update { it.copy(isSending = true) }
@@ -229,7 +249,7 @@ class ChatRoomViewModel @Inject constructor(
         val user = viewer ?: return false
         val attachment = state.value.attachment ?: return false
         val snapshot = state.value
-        if (snapshot.isSendingAttachment || snapshot.blocked || snapshot.pendingRequest) return false
+        if (snapshot.isSendingAttachment || snapshot.isSendingVoice || snapshot.isRecordingVoice || snapshot.blocked || snapshot.pendingRequest) return false
         _state.update { it.copy(isSendingAttachment = true) }
         viewModelScope.launch {
             val result = when {
@@ -249,6 +269,152 @@ class ChatRoomViewModel @Inject constructor(
             )
         }
         return true
+    }
+
+    fun startVoiceRecording(): Boolean {
+        val snapshot = state.value
+        if (viewer == null || !snapshot.canSend(viewer?.uid) || snapshot.attachment != null) return false
+        stopTyping()
+        voicePlayer.stop()
+        voiceRecorder.start().fold(
+            onSuccess = {
+                _state.update {
+                    it.copy(
+                        isRecordingVoice = true,
+                        voiceRecordingDurationSeconds = 0L,
+                        voiceRecordingLevels = emptyList(),
+                        voiceUploadProgress = 0,
+                    )
+                }
+                voiceRecordingJob?.cancel()
+                voiceRecordingJob = viewModelScope.launch {
+                    while (state.value.isRecordingVoice) {
+                        val elapsedMillis = voiceRecorder.elapsedMillis()
+                        val seconds = (elapsedMillis / 1_000L).coerceAtMost(ChatVoiceRecorder.MaxVoiceDurationSeconds)
+                        val level = (voiceRecorder.amplitude().toFloat() / 32_767f).coerceIn(0.04f, 1f)
+                        _state.update { current ->
+                            current.copy(
+                                voiceRecordingDurationSeconds = seconds,
+                                voiceRecordingLevels = (current.voiceRecordingLevels + level).takeLast(VoiceWaveformSamples),
+                            )
+                        }
+                        if (elapsedMillis >= ChatVoiceRecorder.MaxVoiceDurationSeconds * 1_000L) {
+                            stopVoiceRecording()
+                            break
+                        }
+                        delay(VoiceMeterIntervalMillis)
+                    }
+                }
+            },
+            onFailure = { showNotice(it.voiceRecorderMessage(), ChatNoticeKind.Error) },
+        )
+        return state.value.isRecordingVoice
+    }
+
+    fun stopVoiceRecording(): Boolean {
+        if (!state.value.isRecordingVoice) return false
+        voiceRecordingJob?.cancel()
+        voiceRecordingJob = null
+        val recording = voiceRecorder.stop().fold(
+            onSuccess = { it },
+            onFailure = {
+                _state.update { current -> current.copy(isRecordingVoice = false, voiceRecordingDurationSeconds = 0L, voiceRecordingLevels = emptyList()) }
+                showNotice(it.voiceRecorderMessage(), ChatNoticeKind.Error)
+                return false
+            },
+        )
+        if (recording.durationSeconds < 1L) {
+            recording.file.delete()
+            _state.update {
+                it.copy(
+                    isRecordingVoice = false,
+                    voiceRecordingDurationSeconds = 0L,
+                    voiceRecordingLevels = emptyList(),
+                )
+            }
+            showNotice("Recording is too short. Record for at least 1 second.", ChatNoticeKind.Error)
+            return false
+        }
+        _state.update {
+            it.copy(
+                isRecordingVoice = false,
+                voiceRecordingDurationSeconds = recording.durationSeconds,
+                voiceRecordingLevels = emptyList(),
+                isSendingVoice = true,
+                voiceUploadProgress = 0,
+            )
+        }
+        val user = viewer
+        if (user == null) {
+            recording.file.delete()
+            _state.update { it.copy(isSendingVoice = false) }
+            return false
+        }
+        val reply = state.value.replyTo
+        viewModelScope.launch {
+            try {
+                repository.sendVoice(
+                    roomId = roomId,
+                    sender = user,
+                    file = recording.file,
+                    durationSeconds = recording.durationSeconds,
+                    mimeType = recording.mimeType,
+                    replyTo = reply,
+                    onProgress = { progress -> _state.update { it.copy(voiceUploadProgress = progress) } },
+                ).fold(
+                    onSuccess = {
+                        _state.update { current ->
+                            current.copy(
+                                replyTo = null,
+                                isSendingVoice = false,
+                                voiceRecordingDurationSeconds = 0L,
+                                voiceUploadProgress = 0,
+                            )
+                        }
+                    },
+                    onFailure = { error ->
+                        _state.update { it.copy(isSendingVoice = false, voiceUploadProgress = 0) }
+                        showNotice(error.chatMessage(), ChatNoticeKind.Error)
+                    },
+                )
+            } finally {
+                recording.file.delete()
+            }
+        }
+        return true
+    }
+
+    fun cancelVoiceRecording(): Boolean {
+        val wasRecording = state.value.isRecordingVoice
+        voiceRecordingJob?.cancel()
+        voiceRecordingJob = null
+        voiceRecorder.cancel()
+        if (wasRecording) {
+            _state.update {
+                it.copy(
+                    isRecordingVoice = false,
+                    voiceRecordingDurationSeconds = 0L,
+                    voiceRecordingLevels = emptyList(),
+                )
+            }
+        }
+        return wasRecording
+    }
+
+    fun onMicrophonePermissionDenied() {
+        showNotice("Microphone permission is required to send voice messages.", ChatNoticeKind.Error)
+    }
+
+    fun toggleVoicePlayback(message: Message) = voicePlayer.toggle(message)
+
+    fun seekVoicePlayback(messageId: String, fraction: Float) = voicePlayer.seek(messageId, fraction)
+
+    fun cycleVoicePlaybackSpeed(messageId: String) = voicePlayer.cycleSpeed(messageId)
+
+    fun onScreenDisposed() {
+        stopTyping()
+        cancelVoiceRecording()
+        voicePlayer.stop()
     }
 
     fun acceptRequest(): Boolean = requestAction { repository.acceptRequest(roomId, requireViewerId()) }
@@ -321,6 +487,9 @@ class ChatRoomViewModel @Inject constructor(
     override fun onCleared() {
         typingIdleJob?.cancel()
         typingRefreshJob?.cancel()
+        voiceRecordingJob?.cancel()
+        voiceRecorder.cancel()
+        voicePlayer.release()
         state.value.attachment?.file?.delete()
         super.onCleared()
     }
@@ -328,7 +497,14 @@ class ChatRoomViewModel @Inject constructor(
     companion object {
         private const val TypingIdleMillis = 3_000L
         private const val TypingRefreshMillis = 2_000L
+        private const val VoiceMeterIntervalMillis = 100L
+        private const val VoiceWaveformSamples = 34
     }
+}
+
+internal fun Throwable.voiceRecorderMessage(): String = when (this) {
+    is SecurityException -> "Microphone permission is required to send voice messages."
+    else -> message?.takeIf(String::isNotBlank) ?: "Could not record audio. Please try again."
 }
 
 internal fun Throwable.chatMessage(): String {

@@ -120,6 +120,26 @@ class ChatStateTest {
         assertEquals("Yesterday", messageDayLabel(yesterday, today, zone))
     }
 
+    @Test
+    fun `voice work blocks duplicate composer actions`() {
+        val room = ChatRoomDetail(
+            room = ChatRoom(id = "room", participants = listOf("viewer", "other")),
+            otherUser = UserData(uid = "other"),
+        )
+
+        assertFalse(ChatRoomUiState(room = room, isRecordingVoice = true).canSend("viewer"))
+        assertFalse(ChatRoomUiState(room = room, isSendingVoice = true).canSend("viewer"))
+        assertTrue(ChatRoomUiState(room = room).canSend("viewer"))
+    }
+
+    @Test
+    fun `voice duration and speed labels are compact`() {
+        assertEquals("0:00", formatVoiceTime(0L))
+        assertEquals("1:05", formatVoiceTime(65_000L))
+        assertEquals("1x", formatPlaybackSpeed(1f))
+        assertEquals("1.5x", formatPlaybackSpeed(1.5f))
+    }
+
     private fun roomItem(
         id: String,
         title: String? = null,

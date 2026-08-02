@@ -84,6 +84,8 @@ data class Message(
     val type: String = MessageType.Text.raw,
     val audioUrl: String? = null,
     val duration: Long? = null,
+    val fileSize: Long? = null,
+    val mimeType: String? = null,
     val video: VideoAttachment? = null,
     val file: FileAttachment? = null,
     val createdAt: Timestamp? = null,

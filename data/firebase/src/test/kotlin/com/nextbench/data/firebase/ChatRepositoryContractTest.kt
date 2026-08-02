@@ -91,6 +91,53 @@ class ChatRepositoryContractTest {
     }
 
     @Test
+    fun `voice payload matches the shared web contract`() {
+        val payload = voiceMessagePayload(
+            sender = UserData(uid = "student-1", name = "Maya"),
+            messageId = "voice-1",
+            audioUrl = "https://storage/voice.m4a",
+            durationSeconds = 42L,
+            fileSize = 320_000L,
+            mimeType = "audio/mp4",
+            replyTo = Message(id = "older", senderName = "Noah", text = "Listen to this"),
+        )
+
+        assertEquals("voice", payload["type"])
+        assertEquals("https://storage/voice.m4a", payload["audioUrl"])
+        assertEquals(42L, payload["duration"])
+        assertEquals(320_000L, payload["fileSize"])
+        assertEquals("audio/mp4", payload["mimeType"])
+        assertEquals("older", payload["replyToMessageId"])
+        assertEquals("android_voice-1", payload["clientMessageId"])
+    }
+
+    @Test
+    fun `voice validation enforces duration size and audio format`() {
+        assertTrue(voiceMessageValidationError(0L, 1L, "audio/mp4")!!.contains("too short"))
+        assertTrue(voiceMessageValidationError(301L, 1L, "audio/mp4")!!.contains("5 minutes"))
+        assertTrue(voiceMessageValidationError(1L, 10L * 1024L * 1024L + 1L, "audio/mp4")!!.contains("10 MB"))
+        assertTrue(voiceMessageValidationError(1L, 1L, "video/mp4")!!.contains("format"))
+        assertEquals(null, voiceMessageValidationError(300L, 10L * 1024L * 1024L, "audio/mp4"))
+    }
+
+    @Test
+    fun `voice messages preserve playback metadata when read`() {
+        val message = requireNotNull(mapOf<String, Any?>(
+            "senderId" to "student-1",
+            "type" to "voice",
+            "audioUrl" to "https://storage/voice.m4a",
+            "duration" to 17L,
+            "fileSize" to 128_000L,
+            "mimeType" to "audio/mp4",
+        ).toChatMessage("voice-1"))
+
+        assertEquals(MessageType.Voice.raw, message.type)
+        assertEquals(17L, message.duration)
+        assertEquals(128_000L, message.fileSize)
+        assertEquals("audio/mp4", message.mimeType)
+    }
+
+    @Test
     fun `room metadata identifies recipients and restores sender visibility`() {
         val payload = roomMetadataPayload(
             senderId = "buyer-1",

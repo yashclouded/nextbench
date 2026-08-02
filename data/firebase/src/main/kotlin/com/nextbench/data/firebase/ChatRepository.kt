@@ -1,10 +1,13 @@
 package com.nextbench.data.firebase
 
+import android.net.Uri
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import com.nextbench.data.model.ChatRoom
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.ClubSettings
@@ -66,6 +69,7 @@ class ChatRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
     private val refsProvider: Provider<FirestoreRefs>,
     private val uploader: CloudinaryUploader,
+    private val storage: FirebaseStorage,
 ) {
     private val auth get() = authProvider.get()
     private val refs get() = refsProvider.get()
@@ -226,6 +230,93 @@ class ChatRepository @Inject constructor(
 
     suspend fun sendFile(roomId: String, sender: UserData, file: File, mime: String, caption: String? = null, pages: Int? = null, replyTo: Message? = null): Result<Message> =
         sendAttachment(roomId, sender, file, caption, replyTo, AttachmentKind.File(mime, pages))
+
+    suspend fun sendVoice(
+        roomId: String,
+        sender: UserData,
+        file: File,
+        durationSeconds: Long,
+        mimeType: String,
+        replyTo: Message? = null,
+        onProgress: (Int) -> Unit = {},
+    ): Result<Message> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(sender.uid)
+        require(file.isFile) { "Recording file is missing." }
+        voiceMessageValidationError(durationSeconds, file.length(), mimeType)?.let { throw IllegalArgumentException(it) }
+
+        val roomRef = refs.chatRoom(roomId)
+        val room = roomRef.get().await().toChatRoom()
+            ?: throw FirebaseFirestoreException("This conversation is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
+        require(sender.uid in room.participants) { "You are not a member of this conversation." }
+        require(room.status != "pending") { "Accept this chat request before replying." }
+        require(!hasBlockRelationship(sender.uid, room.participants.filter { it != sender.uid })) { "Cannot message this user." }
+
+        val messageRef = refs.messages(roomId).document()
+        val extension = file.extension.ifBlank { "m4a" }.replace(Regex("[^A-Za-z0-9]"), "").ifBlank { "m4a" }
+        val storageRef = storage.reference.child("voice/$roomId/${messageRef.id}.$extension")
+        val metadata = StorageMetadata.Builder().setContentType(mimeType).build()
+        suspend fun upload() {
+            storageRef.putFile(Uri.fromFile(file), metadata)
+                .addOnProgressListener { snapshot ->
+                    if (snapshot.totalByteCount > 0L) {
+                        onProgress(((snapshot.bytesTransferred * 100L) / snapshot.totalByteCount).toInt().coerceIn(0, 100))
+                    }
+                }
+                .await()
+        }
+
+        runCatching { upload() }.recoverCatching { upload() }.getOrThrow()
+        val audioUrl = try {
+            storageRef.downloadUrl.await().toString()
+        } catch (error: Exception) {
+            runCatching { storageRef.delete().await() }
+            throw error
+        }
+        val payload = voiceMessagePayload(
+            sender = sender,
+            messageId = messageRef.id,
+            audioUrl = audioUrl,
+            durationSeconds = durationSeconds,
+            fileSize = file.length(),
+            mimeType = mimeType,
+            replyTo = replyTo,
+        )
+        try {
+            val batch = roomRef.firestore.batch()
+            batch.set(messageRef, payload)
+            batch.update(
+                roomRef,
+                roomMetadataPayload(
+                    senderId = sender.uid,
+                    lastMessage = "Voice message",
+                    recipientIds = room.participants.filter { it != sender.uid },
+                    lastMessageType = MessageType.Voice.raw,
+                ),
+            )
+            batch.commit().await()
+        } catch (error: Exception) {
+            runCatching { storageRef.delete().await() }
+            throw error
+        }
+        onProgress(100)
+        Message(
+            id = messageRef.id,
+            senderId = sender.uid,
+            senderName = sender.name.ifBlank { "Student" },
+            senderAvatar = sender.profilePicture,
+            type = MessageType.Voice.raw,
+            audioUrl = audioUrl,
+            duration = durationSeconds,
+            createdAt = Timestamp.now(),
+            clientMessageId = "android_${messageRef.id}",
+            status = MessageStatus.Sent.raw,
+            replyToMessageId = replyTo?.id,
+            replyToText = replyTo?.replyPreviewText(),
+            replyToSenderName = replyTo?.senderName,
+            replyToType = replyTo?.replyPreviewType(),
+        )
+    }
 
     suspend fun toggleReaction(roomId: String, messageId: String, uid: String, emoji: String): Result<Boolean> = runCatching {
         ensureConfigured()
@@ -605,6 +696,8 @@ internal fun Map<String, Any?>.toChatMessage(id: String): Message? {
         ),
         audioUrl = chatNullableString("audioUrl"),
         duration = chatLong("duration"),
+        fileSize = chatLong("fileSize"),
+        mimeType = chatNullableString("mimeType"),
         video = videoMap.takeIf(Map<*, *>::isNotEmpty)?.let { video ->
             VideoAttachment(
                 url = video.chatString("url"),
@@ -653,6 +746,37 @@ internal fun textMessagePayload(
     "clientMessageId" to "android_$messageId",
     "status" to MessageStatus.Sent.raw,
 ) + replyPayload(replyTo)
+
+internal fun voiceMessagePayload(
+    sender: UserData,
+    messageId: String,
+    audioUrl: String,
+    durationSeconds: Long,
+    fileSize: Long,
+    mimeType: String,
+    replyTo: Message? = null,
+): Map<String, Any?> = mapOf(
+    "senderId" to sender.uid,
+    "senderName" to sender.name.ifBlank { "Student" },
+    "senderAvatar" to sender.profilePicture,
+    "type" to MessageType.Voice.raw,
+    "audioUrl" to audioUrl,
+    "duration" to durationSeconds,
+    "fileSize" to fileSize,
+    "mimeType" to mimeType,
+    "createdAt" to FieldValue.serverTimestamp(),
+    "clientMessageId" to "android_$messageId",
+    "status" to MessageStatus.Sent.raw,
+) + replyPayload(replyTo)
+
+internal fun voiceMessageValidationError(durationSeconds: Long, fileSize: Long, mimeType: String): String? = when {
+    durationSeconds < 1L -> "Recording is too short. Record for at least 1 second."
+    durationSeconds > 300L -> "Voice messages can be up to 5 minutes."
+    fileSize <= 0L -> "Recording file is empty."
+    fileSize > 10L * 1024L * 1024L -> "Voice messages must be smaller than 10 MB."
+    !mimeType.startsWith("audio/") -> "Recording format is not supported."
+    else -> null
+}
 
 private fun attachmentMessagePayload(
     sender: UserData,

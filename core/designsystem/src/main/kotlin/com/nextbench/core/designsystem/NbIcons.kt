@@ -435,6 +435,32 @@ object NbIcons {
         }
     }
 
+    val Pause: ImageVector by lazy {
+        nbVector("Pause") {
+            solid { moveTo(6f, 5f); lineTo(10f, 5f); lineTo(10f, 19f); lineTo(6f, 19f); close() }
+            solid { moveTo(14f, 5f); lineTo(18f, 5f); lineTo(18f, 19f); lineTo(14f, 19f); close() }
+        }
+    }
+
+    val Mic: ImageVector by lazy {
+        nbVector("Microphone") {
+            line {
+                moveTo(12f, 4f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, 15f, 7f)
+                lineTo(15f, 12f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, 9f, 12f)
+                lineTo(9f, 7f)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = true, 12f, 4f)
+            }
+            line { moveTo(5f, 11f); lineTo(5f, 12f); arcTo(7f, 7f, 0f, isMoreThanHalf = false, isPositiveArc = false, 19f, 12f); lineTo(19f, 11f) }
+            line { moveTo(12f, 19f); lineTo(12f, 22f); moveTo(8f, 22f); lineTo(16f, 22f) }
+        }
+    }
+
+    val Stop: ImageVector by lazy {
+        nbVector("Stop") { solid { moveTo(6f, 6f); lineTo(18f, 6f); lineTo(18f, 18f); lineTo(6f, 18f); close() } }
+    }
+
     val FileText: ImageVector by lazy {
         nbVector("Document") {
             line {

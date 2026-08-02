@@ -1,9 +1,11 @@
 package com.nextbench.app.chat
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -65,6 +67,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import com.nextbench.core.common.formatRelativeTime
 import com.nextbench.core.designsystem.NbAvatar
 import com.nextbench.core.designsystem.NbBottomSheet
@@ -116,7 +120,7 @@ fun ChatRoomScreen(
 
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
     DisposableEffect(viewModel) {
-        onDispose { viewModel.stopTyping() }
+        onDispose { viewModel.onScreenDisposed() }
     }
     LaunchedEffect(state.messages.size) {
         if (state.messages.isEmpty()) return@LaunchedEffect
@@ -149,6 +153,16 @@ fun ChatRoomScreen(
     }
     val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::prepareAttachment)
+    }
+    val voicePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.startVoiceRecording() else viewModel.onMicrophonePermissionDenied()
+    }
+    val startVoiceRecording: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            viewModel.startVoiceRecording()
+        } else {
+            voicePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     Column(modifier = modifier.fillMaxSize().background(NbTheme.colors.surfaceBase)) {
@@ -198,6 +212,10 @@ fun ChatRoomScreen(
                                 showSender = previous == null || previous.senderId != message.senderId || messageStartsNewDay(previous, message),
                                 onLongPress = viewModel::openMessageActions,
                                 onOpenAttachment = { url -> openAttachment(context, url) },
+                                playback = state.voicePlayback,
+                                onToggleVoice = viewModel::toggleVoicePlayback,
+                                onSeekVoice = viewModel::seekVoicePlayback,
+                                onCycleVoiceSpeed = viewModel::cycleVoicePlaybackSpeed,
                                 onRead = if (message.senderId != viewerId && viewerId != null) {
                                     { viewModel.markMessageRead(message.id) }
                                 } else null,
@@ -235,6 +253,14 @@ fun ChatRoomScreen(
                     onClearAttachment = viewModel::clearAttachment,
                     onClearReply = { viewModel.setReplyTo(null) },
                     onSendAttachment = viewModel::sendAttachment,
+                    isRecordingVoice = state.isRecordingVoice,
+                    voiceRecordingDurationSeconds = state.voiceRecordingDurationSeconds,
+                    voiceRecordingLevels = state.voiceRecordingLevels,
+                    isSendingVoice = state.isSendingVoice,
+                    voiceUploadProgress = state.voiceUploadProgress,
+                    onStartVoiceRecording = startVoiceRecording,
+                    onStopVoiceRecording = viewModel::stopVoiceRecording,
+                    onCancelVoiceRecording = viewModel::cancelVoiceRecording,
                 )
             }
         }
@@ -458,6 +484,10 @@ private fun MessageBubble(
     showSender: Boolean,
     onLongPress: (Message) -> Unit,
     onOpenAttachment: (String) -> Unit,
+    playback: ChatVoicePlaybackState,
+    onToggleVoice: (Message) -> Unit,
+    onSeekVoice: (String, Float) -> Unit,
+    onCycleVoiceSpeed: (String) -> Unit,
     onRead: (() -> Unit)?,
 ) {
     LaunchedEffect(message.id, message.readBy) { onRead?.invoke() }
@@ -524,7 +554,14 @@ private fun MessageBubble(
                             Icon(NbIcons.ArrowRight, contentDescription = "Open document", tint = textColor.copy(alpha = 0.72f), modifier = Modifier.size(18.dp))
                         }
                     }
-                    MessageType.Voice -> Text("Voice message", style = MaterialTheme.typography.bodyMedium, color = textColor)
+                    MessageType.Voice -> VoiceMessageBubble(
+                        message = message,
+                        isViewer = isViewer,
+                        playback = playback,
+                        onToggle = onToggleVoice,
+                        onSeek = onSeekVoice,
+                        onCycleSpeed = onCycleVoiceSpeed,
+                    )
                     MessageType.Text -> if (!message.text.isNullOrBlank()) Text(message.text.orEmpty(), style = MaterialTheme.typography.bodyLarge, color = textColor)
                 }
                 if (message.reactions.isNotEmpty()) {
@@ -538,6 +575,72 @@ private fun MessageBubble(
         }
     }
 }
+
+@Composable
+private fun VoiceMessageBubble(
+    message: Message,
+    isViewer: Boolean,
+    playback: ChatVoicePlaybackState,
+    onToggle: (Message) -> Unit,
+    onSeek: (String, Float) -> Unit,
+    onCycleSpeed: (String) -> Unit,
+) {
+    val active = playback.messageId == message.id
+    val durationMillis = playback.durationMillis.takeIf { it > 0L } ?: (message.duration ?: 0L) * 1_000L
+    val positionMillis = if (active) playback.positionMillis else 0L
+    val progress = if (durationMillis > 0L) (positionMillis.toFloat() / durationMillis).coerceIn(0f, 1f) else 0f
+    val foreground = if (isViewer) Color.White else NbTheme.colors.ink
+    val muted = foreground.copy(alpha = 0.68f)
+    val bars = listOf(0.42f, 0.7f, 0.54f, 0.86f, 0.48f, 0.76f, 0.62f, 0.94f, 0.55f, 0.8f, 0.46f, 0.67f, 0.9f, 0.58f, 0.74f, 0.5f, 0.83f, 0.63f, 0.92f, 0.52f, 0.77f, 0.45f, 0.69f, 0.88f, 0.57f, 0.73f, 0.49f, 0.84f)
+    var waveformWidth by remember(message.id) { mutableStateOf(1) }
+    Column(verticalArrangement = Arrangement.spacedBy(NbDimens.space4), modifier = Modifier.widthIn(min = 216.dp, max = 260.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+            IconButton(
+                onClick = { onToggle(message) },
+                enabled = !active || !playback.isLoading,
+                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(if (isViewer) Color.White.copy(alpha = 0.16f) else NbTheme.colors.brandTeal.copy(alpha = 0.12f)).semantics { contentDescription = if (playback.isPlaying && active) "Pause voice message" else "Play voice message" },
+            ) {
+                if (active && playback.isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(17.dp), color = foreground, strokeWidth = 2.dp)
+                } else {
+                    Icon(if (active && playback.isPlaying) NbIcons.Pause else NbIcons.Play, contentDescription = null, tint = foreground, modifier = Modifier.size(17.dp))
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(28.dp)
+                    .clip(RoundedCornerShape(NbDimens.radiusSm))
+                    .onSizeChanged { waveformWidth = it.width.coerceAtLeast(1) }
+                    .pointerInput(message.id, durationMillis) {
+                        detectTapGestures { point -> onSeek(message.id, point.x / waveformWidth.toFloat()) }
+                    }
+                    .semantics { contentDescription = "Voice message playback progress" },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                bars.forEachIndexed { index, height ->
+                    Box(modifier = Modifier.weight(1f).height((8f + 18f * height).dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(if (index.toFloat() / bars.size <= progress) (if (isViewer) Color.White else NbTheme.colors.brandTeal) else muted))
+                }
+            }
+        }
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(formatVoiceTime(if (active && playback.isPlaying) positionMillis else durationMillis), style = MaterialTheme.typography.labelSmall, color = muted)
+            Spacer(Modifier.weight(1f))
+            if (active && playback.error != null) Text("Try again", style = MaterialTheme.typography.labelSmall, color = if (isViewer) Color.White else NbTheme.colors.brandTeal, modifier = Modifier.clickable { onToggle(message) })
+            else {
+                Text(formatPlaybackSpeed(playback.speed.takeIf { active } ?: 1f), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = muted, modifier = Modifier.clickable { onCycleSpeed(message.id) }.semantics { contentDescription = "Playback speed" })
+            }
+        }
+    }
+}
+
+internal fun formatVoiceTime(millis: Long): String {
+    val seconds = (millis / 1_000L).coerceAtLeast(0L)
+    return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+}
+
+internal fun formatPlaybackSpeed(speed: Float): String = if (speed == speed.toInt().toFloat()) "${speed.toInt()}x" else "${speed}x"
 
 @Composable
 private fun EmptyConversation(name: String) {
@@ -583,6 +686,14 @@ private fun Composer(
     onClearAttachment: () -> Unit,
     onClearReply: () -> Unit,
     onSendAttachment: () -> Boolean,
+    isRecordingVoice: Boolean,
+    voiceRecordingDurationSeconds: Long,
+    voiceRecordingLevels: List<Float>,
+    isSendingVoice: Boolean,
+    voiceUploadProgress: Int,
+    onStartVoiceRecording: () -> Unit,
+    onStopVoiceRecording: () -> Boolean,
+    onCancelVoiceRecording: () -> Boolean,
 ) {
     Surface(color = NbTheme.colors.surfaceCard, tonalElevation = 0.dp, modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding()) {
         Column(modifier = Modifier.padding(horizontal = NbDimens.space12, vertical = NbDimens.space8), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
@@ -609,16 +720,81 @@ private fun Composer(
                     IconButton(onClick = onClearAttachment, modifier = Modifier.size(28.dp)) { Icon(NbIcons.Close, contentDescription = "Remove attachment", tint = NbTheme.colors.inkMuted, modifier = Modifier.size(16.dp)) }
                 }
             }
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
-                IconButton(onClick = onAddAttachment, enabled = enabled && !preparingAttachment && !sendingAttachment, modifier = Modifier.size(42.dp).semantics { contentDescription = "Add attachment" }) {
-                    Icon(NbIcons.Plus, contentDescription = null, tint = NbTheme.colors.brandTeal)
+            when {
+                isRecordingVoice -> VoiceRecordingControls(
+                    durationSeconds = voiceRecordingDurationSeconds,
+                    levels = voiceRecordingLevels,
+                    onCancel = onCancelVoiceRecording,
+                    onSend = onStopVoiceRecording,
+                )
+                isSendingVoice -> Row(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(NbDimens.radiusSm)).background(NbTheme.colors.surfaceSoft).padding(horizontal = NbDimens.space12, vertical = NbDimens.space12),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = NbTheme.colors.brandTeal, strokeWidth = 2.dp)
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                        Text("Sending voice message", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                        Box(modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(NbTheme.colors.border)) {
+                            Box(modifier = Modifier.fillMaxWidth((voiceUploadProgress / 100f).coerceIn(0f, 1f)).height(3.dp).background(NbTheme.colors.brandTeal))
+                        }
+                    }
+                    Text("$voiceUploadProgress%", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
                 }
-                NbTextField(value = value, onValueChange = onValueChange, modifier = Modifier.weight(1f), placeholder = "Write a message...", singleLine = false, maxLines = 5, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default), keyboardActions = KeyboardActions.Default)
-                val canSend = enabled && !preparingAttachment && (attachment != null || value.isNotBlank())
-                IconButton(onClick = { if (attachment != null) onSendAttachment() else onSend() }, enabled = canSend, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(if (canSend) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft).semantics { contentDescription = "Send message" }) {
-                    if (sending || sendingAttachment || preparingAttachment) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(NbIcons.Send, contentDescription = null, tint = if (canSend) Color.White else NbTheme.colors.inkFaint)
+                else -> Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                    IconButton(onClick = onAddAttachment, enabled = enabled && !preparingAttachment && !sendingAttachment, modifier = Modifier.size(42.dp).semantics { contentDescription = "Add attachment" }) {
+                        Icon(NbIcons.Plus, contentDescription = null, tint = NbTheme.colors.brandTeal)
+                    }
+                    NbTextField(value = value, onValueChange = onValueChange, modifier = Modifier.weight(1f), placeholder = "Write a message...", singleLine = false, maxLines = 5, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default), keyboardActions = KeyboardActions.Default)
+                    val canSend = enabled && !preparingAttachment && (attachment != null || value.isNotBlank())
+                    val showMic = attachment == null && value.isBlank() && !preparingAttachment && !sendingAttachment
+                    IconButton(
+                        onClick = {
+                            if (showMic) onStartVoiceRecording()
+                            else if (attachment != null) onSendAttachment()
+                            else onSend()
+                            Unit
+                        },
+                        enabled = if (showMic) enabled else canSend,
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(if (showMic || canSend) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft).semantics { contentDescription = if (showMic) "Record voice message" else "Send message" },
+                    ) {
+                        if (sending || sendingAttachment || preparingAttachment) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Icon(if (showMic) NbIcons.Mic else NbIcons.Send, contentDescription = null, tint = if (showMic || canSend) Color.White else NbTheme.colors.inkFaint)
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun VoiceRecordingControls(
+    durationSeconds: Long,
+    levels: List<Float>,
+    onCancel: () -> Boolean,
+    onSend: () -> Boolean,
+) {
+    val transition = rememberInfiniteTransition(label = "recordingPulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(620), RepeatMode.Reverse),
+        label = "recordingPulseAlpha",
+    )
+    Row(modifier = Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+        Box(modifier = Modifier.size(9.dp).alpha(pulse).clip(RoundedCornerShape(NbDimens.radiusFull)).background(NbTheme.colors.brandPink))
+        Text(formatVoiceTime(durationSeconds * 1_000L), style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+        Row(modifier = Modifier.weight(1f).height(28.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+            val samples = if (levels.isEmpty()) List(20) { 0.08f } else levels.takeLast(28)
+            samples.forEach { level ->
+                Box(modifier = Modifier.weight(1f).height((6f + 20f * level.coerceIn(0f, 1f)).dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(NbTheme.colors.brandTeal.copy(alpha = 0.38f + level * 0.62f)))
+            }
+        }
+        IconButton(onClick = { onCancel() }, modifier = Modifier.size(40.dp).semantics { contentDescription = "Cancel voice recording" }) {
+            Icon(NbIcons.Trash, contentDescription = null, tint = NbTheme.colors.brandPink, modifier = Modifier.size(20.dp))
+        }
+        IconButton(onClick = { onSend() }, modifier = Modifier.size(44.dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(NbTheme.colors.brandTeal).semantics { contentDescription = "Stop and send voice message" }) {
+            Icon(NbIcons.Stop, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
         }
     }
 }
