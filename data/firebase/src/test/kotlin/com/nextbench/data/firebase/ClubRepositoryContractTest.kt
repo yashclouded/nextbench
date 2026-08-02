@@ -1,6 +1,8 @@
 package com.nextbench.data.firebase
 
 import com.nextbench.data.model.UserData
+import com.nextbench.data.model.Message
+import com.nextbench.data.model.MessageType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,6 +42,39 @@ class ClubRepositoryContractTest {
         assertEquals("Maya", payload["lastSenderName"])
         assertEquals("See you at the studio", payload["lastMessage"])
         assertTrue(payload.containsKey("unreadBy"))
+    }
+
+    @Test
+    fun `club text messages preserve structured reply metadata`() {
+        val payload = textMessagePayload(
+            sender = UserData(uid = "student-1", name = "Maya"),
+            messageId = "message-2",
+            text = "I can share it",
+            replyTo = Message(
+                id = "message-1",
+                senderId = "student-2",
+                senderName = "Noah",
+                type = MessageType.File.raw,
+                file = com.nextbench.data.model.FileAttachment(name = "Notes.pdf"),
+            ),
+        )
+
+        assertEquals("message-1", payload["replyToMessageId"])
+        assertEquals("Noah", payload["replyToSenderName"])
+        assertEquals("Notes.pdf", payload["replyToText"])
+        assertEquals(MessageType.File.raw, payload["replyToType"])
+    }
+
+    @Test
+    fun `club delete for everyone redacts all supported media`() {
+        val payload = clubDeletedForEveryonePayload()
+
+        assertEquals(true, payload["isDeletedForEveryone"])
+        assertEquals("This message was deleted", payload["text"])
+        assertTrue(payload.containsKey("image"))
+        assertTrue(payload.containsKey("video"))
+        assertTrue(payload.containsKey("file"))
+        assertTrue(payload.containsKey("audioUrl"))
     }
 
     @Test

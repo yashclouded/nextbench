@@ -450,10 +450,11 @@ fun NbNavHost(
             route = NbRoute.MessagesClub.path,
             arguments = listOf(navArgument("clubId") { type = NavType.StringType }),
         ) { GuardedDestination(navController, NbRoute.MessagesClub.path, authViewModel) {
-            ClubChatScreen(
-                user = (session as? SessionState.SignedIn)?.userData,
-                onOpenSettings = { clubId -> navController.navigate(NbRoute.clubSettings(clubId)) { launchSingleTop = true } },
-            )
+                ClubChatScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenSettings = { clubId -> navController.navigate(NbRoute.clubSettings(clubId)) { launchSingleTop = true } },
+                    onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
+                )
         } }
         composable(
             route = NbRoute.Club.path,
@@ -466,6 +467,7 @@ fun NbNavHost(
             ClubChatScreen(
                 user = (session as? SessionState.SignedIn)?.userData,
                 onOpenSettings = { clubId -> navController.navigate(NbRoute.clubSettings(clubId)) { launchSingleTop = true } },
+                onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
             )
         } }
         composable(

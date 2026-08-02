@@ -2,6 +2,7 @@ package com.nextbench.data.firebase
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.ClubSettings
 import com.nextbench.data.model.Message
@@ -185,7 +186,7 @@ class ClubRepository @Inject constructor(
         ).await()
     }
 
-    suspend fun sendText(clubId: String, sender: UserData, text: String): Result<Message> = runCatching {
+    suspend fun sendText(clubId: String, sender: UserData, text: String, replyTo: Message? = null): Result<Message> = runCatching {
         ensureConfigured()
         requireAuthenticated(sender.uid)
         val normalized = text.trim()
@@ -201,7 +202,7 @@ class ClubRepository @Inject constructor(
         require(!club.settings.onlyLeadsCanPost || isLead) { "Only club leads can post right now." }
 
         val messageRef = refs.clubMessages(clubId).document()
-        val messagePayload = textMessagePayload(sender, messageRef.id, normalized)
+        val messagePayload = textMessagePayload(sender, messageRef.id, normalized, replyTo)
         val recipients = club.memberIds.filter { it != sender.uid && it.isNotBlank() }
         val batch = clubRef.firestore.batch()
         batch.set(messageRef, messagePayload)
@@ -218,7 +219,52 @@ class ClubRepository @Inject constructor(
             createdAt = com.google.firebase.Timestamp.now(),
             clientMessageId = "android_${messageRef.id}",
             status = MessageStatus.Sent.raw,
+            replyToMessageId = replyTo?.id,
+            replyToText = replyTo?.clubReplyPreview(),
+            replyToSenderName = replyTo?.senderName,
+            replyToType = replyTo?.type,
         )
+    }
+
+    suspend fun toggleReaction(clubId: String, messageId: String, uid: String, emoji: String): Result<Boolean> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(emoji.length <= 16) { "That reaction is not supported." }
+        requireClubMember(clubId, uid)
+        val ref = refs.clubMessages(clubId).document(messageId)
+        val message = ref.get().await().toMessage()
+            ?: throw FirebaseFirestoreException("This message is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
+        val reactions = message.reactions.toMutableMap()
+        val users = reactions[emoji].orEmpty().toMutableList()
+        val added = uid !in users
+        if (added) users += uid else users -= uid
+        if (users.isEmpty()) reactions.remove(emoji) else reactions[emoji] = users.distinct()
+        ref.update("reactions", reactions).await()
+        added
+    }
+
+    suspend fun deleteForMe(clubId: String, messageId: String, uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        requireClubMember(clubId, uid)
+        refs.clubMessages(clubId).document(messageId).update("deletedFor", FieldValue.arrayUnion(uid)).await()
+    }
+
+    suspend fun deleteForEveryone(clubId: String, messageId: String, uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        requireClubMember(clubId, uid)
+        val ref = refs.clubMessages(clubId).document(messageId)
+        val message = ref.get().await().toMessage()
+            ?: throw FirebaseFirestoreException("This message is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
+        require(message.senderId == uid) { "Only the sender can delete this message for everyone." }
+        ref.update(clubDeletedForEveryonePayload()).await()
+    }
+
+    suspend fun markMessageRead(clubId: String, messageId: String, uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        if (isClubMember(clubId, uid)) refs.clubMessages(clubId).document(messageId).update("readBy", FieldValue.arrayUnion(uid)).await()
     }
 
     suspend fun markRead(clubId: String, uid: String): Result<Unit> = runCatching {
@@ -238,6 +284,13 @@ class ClubRepository @Inject constructor(
         }
     }
 
+    private suspend fun isClubMember(clubId: String, uid: String): Boolean =
+        refs.club(clubId).get().await().toClub()?.memberIds?.contains(uid) == true
+
+    private suspend fun requireClubMember(clubId: String, uid: String) {
+        require(isClubMember(clubId, uid)) { "You are not a member of this club." }
+    }
+
     private fun ensureConfigured() {
         if (!BuildConfig.FIREBASE_CONFIGURED) throw ClubConfigurationException()
     }
@@ -254,6 +307,24 @@ class ClubRepository @Inject constructor(
         internal const val ClubMessageWindowSize = 100L
     }
 }
+
+internal fun clubDeletedForEveryonePayload(): Map<String, Any?> = mapOf(
+    "isDeletedForEveryone" to true,
+    "text" to "This message was deleted",
+    "image" to FieldValue.delete(),
+    "video" to FieldValue.delete(),
+    "file" to FieldValue.delete(),
+    "audioUrl" to FieldValue.delete(),
+)
+
+private fun Message.clubReplyPreview(): String = text?.takeIf(String::isNotBlank)
+    ?: when (MessageType.from(type)) {
+        MessageType.Image -> "Photo"
+        MessageType.Video -> "Video"
+        MessageType.File -> file?.name ?: "File"
+        MessageType.Voice -> "Voice message"
+        MessageType.Text -> "Message"
+    }
 
 internal fun clubJoinUpdatePayload(uid: String): Map<String, Any?> = mapOf(
     "memberIds" to FieldValue.arrayUnion(uid),

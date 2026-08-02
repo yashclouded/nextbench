@@ -28,6 +28,8 @@ data class ClubChatUiState(
     val club: Club? = null,
     val messages: List<Message> = emptyList(),
     val composerText: String = "",
+    val replyTo: Message? = null,
+    val actionMessage: Message? = null,
     val isLoading: Boolean = true,
     val isSending: Boolean = false,
     val isLeaving: Boolean = false,
@@ -90,12 +92,52 @@ class ClubChatViewModel @Inject constructor(
         if (!snapshot.canSend(sender.uid)) return false
         _state.update { it.copy(isSending = true) }
         viewModelScope.launch {
-            repository.sendText(clubId, sender, snapshot.composerText).fold(
-                onSuccess = { _state.update { it.copy(composerText = "", isSending = false) } },
+            repository.sendText(clubId, sender, snapshot.composerText, snapshot.replyTo).fold(
+                onSuccess = { _state.update { it.copy(composerText = "", replyTo = null, isSending = false) } },
                 onFailure = { error -> _state.update { it.copy(isSending = false) }; showNotice(error.clubMessage(), ClubChatNoticeKind.Error) },
             )
         }
         return true
+    }
+
+    fun setReplyTo(message: Message?) = _state.update { it.copy(replyTo = message, actionMessage = null) }
+
+    fun openMessageActions(message: Message) = _state.update { it.copy(actionMessage = message) }
+
+    fun closeMessageActions() = _state.update { it.copy(actionMessage = null) }
+
+    fun toggleReaction(emoji: String): Boolean {
+        val uid = viewer?.uid ?: return false
+        val message = state.value.actionMessage ?: return false
+        viewModelScope.launch {
+            repository.toggleReaction(clubId, message.id, uid, emoji).fold(
+                onSuccess = { _state.update { it.copy(actionMessage = null) } },
+                onFailure = { showNotice(it.clubMessage(), ClubChatNoticeKind.Error) },
+            )
+        }
+        return true
+    }
+
+    fun deleteForMe(): Boolean = messageAction(ownerOnly = false) { message, uid -> repository.deleteForMe(clubId, message.id, uid) }
+
+    fun deleteForEveryone(): Boolean = messageAction(ownerOnly = true) { message, uid -> repository.deleteForEveryone(clubId, message.id, uid) }
+
+    private fun messageAction(ownerOnly: Boolean, operation: suspend (Message, String) -> Result<Unit>): Boolean {
+        val uid = viewer?.uid ?: return false
+        val message = state.value.actionMessage ?: return false
+        if (ownerOnly && message.senderId != uid) return false
+        viewModelScope.launch {
+            operation(message, uid).fold(
+                onSuccess = { _state.update { it.copy(actionMessage = null) } },
+                onFailure = { showNotice(it.clubMessage(), ClubChatNoticeKind.Error) },
+            )
+        }
+        return true
+    }
+
+    fun markMessageRead(messageId: String) {
+        val uid = viewer?.uid ?: return
+        viewModelScope.launch { repository.markMessageRead(clubId, messageId, uid) }
     }
 
     fun leaveClub(): Boolean {

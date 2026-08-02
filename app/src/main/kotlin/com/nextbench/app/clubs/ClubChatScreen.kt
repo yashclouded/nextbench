@@ -1,10 +1,14 @@
 package com.nextbench.app.clubs
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -34,10 +39,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -53,6 +62,7 @@ import coil.request.ImageRequest
 import com.nextbench.core.common.formatRelativeTime
 import com.nextbench.core.designsystem.NbButton
 import com.nextbench.core.designsystem.NbButtonVariant
+import com.nextbench.core.designsystem.NbBottomSheet
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbEmptyState
 import com.nextbench.core.designsystem.NbIcons
@@ -69,6 +79,7 @@ import com.nextbench.data.model.UserData
 fun ClubChatScreen(
     user: UserData?,
     onOpenSettings: (String) -> Unit,
+    onOpenProfile: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ClubChatViewModel = hiltViewModel(),
 ) {
@@ -77,6 +88,7 @@ fun ClubChatScreen(
     val listState = rememberLazyListState()
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
     LaunchedEffect(state.messages.size) { if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex) }
+    BackHandler(enabled = state.actionMessage != null) { viewModel.closeMessageActions() }
 
     Column(modifier = modifier.fillMaxSize().background(NbTheme.colors.surfaceBase)) {
         when {
@@ -92,7 +104,14 @@ fun ClubChatScreen(
                         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = NbDimens.space16, vertical = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
                             item { ClubConversationIntro(club = state.club) }
                             itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
-                                ClubMessageBubble(message = message, isViewer = message.senderId == viewerId, showSender = index == 0 || state.messages[index - 1].senderId != message.senderId)
+                                ClubMessageBubble(
+                                    message = message,
+                                    isViewer = message.senderId == viewerId,
+                                    showSender = index == 0 || state.messages[index - 1].senderId != message.senderId,
+                                    onOpenProfile = { if (message.senderId.isNotBlank()) onOpenProfile(message.senderId) },
+                                    onLongPress = { viewModel.openMessageActions(message) },
+                                    onRead = if (message.senderId != viewerId && viewerId != null) {{ viewModel.markMessageRead(message.id) }} else null,
+                                )
                             }
                         }
                     }
@@ -110,10 +129,29 @@ fun ClubChatScreen(
                         Text("Only club leads can post in this space.", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted, modifier = Modifier.padding(horizontal = NbDimens.space16, vertical = NbDimens.space14))
                     }
                 } else {
-                    ClubComposer(value = state.composerText, onValueChange = viewModel::setComposerText, onSend = { viewModel.sendText() }, enabled = canSend, sending = state.isSending)
+                    ClubComposer(
+                        value = state.composerText,
+                        replyTo = state.replyTo,
+                        onValueChange = viewModel::setComposerText,
+                        onClearReply = { viewModel.setReplyTo(null) },
+                        onSend = { viewModel.sendText() },
+                        enabled = canSend,
+                        sending = state.isSending,
+                    )
                 }
             }
         }
+    }
+    state.actionMessage?.let { message ->
+        ClubMessageActionSheet(
+            message = message,
+            viewerId = viewerId,
+            onReply = { viewModel.setReplyTo(message) },
+            onReaction = viewModel::toggleReaction,
+            onDeleteForMe = viewModel::deleteForMe,
+            onDeleteForEveryone = viewModel::deleteForEveryone,
+            onDismiss = viewModel::closeMessageActions,
+        )
     }
 }
 
@@ -152,18 +190,62 @@ private fun ClubConversationIntro(club: Club?) {
 }
 
 @Composable
-private fun ClubMessageBubble(message: Message, isViewer: Boolean, showSender: Boolean) {
+private fun ClubMessageBubble(
+    message: Message,
+    isViewer: Boolean,
+    showSender: Boolean,
+    onOpenProfile: () -> Unit,
+    onLongPress: () -> Unit,
+    onRead: (() -> Unit)?,
+) {
+    LaunchedEffect(message.id, message.readBy) { onRead?.invoke() }
+    val context = LocalContext.current
     val shape = if (isViewer) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
     val bubbleColor = if (isViewer) NbTheme.colors.brandTeal else NbTheme.colors.surfaceCard
     val textColor = if (isViewer) Color.White else NbTheme.colors.ink
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isViewer) Arrangement.End else Arrangement.Start) {
         Column(horizontalAlignment = if (isViewer) Alignment.End else Alignment.Start, verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
-            if (showSender && !isViewer) Text(message.senderName.orEmpty().ifBlank { "Member" }, style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
-            Column(modifier = Modifier.clip(shape).background(bubbleColor).padding(horizontal = NbDimens.space14, vertical = NbDimens.space12), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
-                when (MessageType.from(message.type)) {
-                    MessageType.Text -> Text(message.text.orEmpty(), style = MaterialTheme.typography.bodyLarge, color = textColor)
-                    else -> Text("Media attachment", style = MaterialTheme.typography.bodyMedium, color = textColor)
+            if (showSender && !isViewer) {
+                Row(modifier = Modifier.clickable(onClick = onOpenProfile), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                    message.senderAvatar?.takeIf(String::isNotBlank)?.let { AsyncImage(it, "${message.senderName ?: "Member"} profile photo", contentScale = ContentScale.Crop, modifier = Modifier.size(18.dp).clip(RoundedCornerShape(NbDimens.radiusFull))) }
+                    Text(message.senderName.orEmpty().ifBlank { "Member" }, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.inkMuted)
                 }
+            }
+            Column(
+                modifier = Modifier.widthIn(max = 300.dp).clip(shape).background(bubbleColor).pointerInput(message.id) { detectTapGestures(onLongPress = { onLongPress() }) }.padding(horizontal = NbDimens.space14, vertical = NbDimens.space12),
+                verticalArrangement = Arrangement.spacedBy(NbDimens.space4),
+            ) {
+                if (message.isDeletedForEveryone) Text("This message was deleted", style = MaterialTheme.typography.bodyMedium, color = textColor.copy(alpha = 0.72f))
+                message.forwardedFrom?.takeIf { !message.isDeletedForEveryone }?.let { source ->
+                    Text("Forwarded from ${source.senderName?.takeIf(String::isNotBlank) ?: "NextBench member"}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = textColor.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (!message.replyToText.isNullOrBlank()) {
+                    Text("Replying to ${message.replyToSenderName ?: "message"}", style = MaterialTheme.typography.labelSmall, color = if (isViewer) Color.White.copy(alpha = 0.75f) else NbTheme.colors.brandTeal)
+                    Text(message.replyToText.orEmpty(), style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.72f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (!message.isDeletedForEveryone) when (MessageType.from(message.type)) {
+                    MessageType.Image -> message.image?.let { url -> AsyncImage(url, "Photo attachment", contentScale = ContentScale.Crop, modifier = Modifier.size(240.dp, 180.dp).clip(RoundedCornerShape(NbDimens.radiusSm)).clickable { openClubAttachment(context, url) }) }
+                    MessageType.Video -> message.video?.let { video ->
+                        Row(modifier = Modifier.clip(RoundedCornerShape(NbDimens.radiusSm)).background(textColor.copy(alpha = 0.1f)).clickable { openClubAttachment(context, video.url) }.padding(NbDimens.space12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+                            Icon(NbIcons.Play, contentDescription = null, tint = textColor)
+                            Text("Video", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor)
+                        }
+                    }
+                    MessageType.File -> message.file?.let { file ->
+                        Row(modifier = Modifier.clip(RoundedCornerShape(NbDimens.radiusSm)).background(textColor.copy(alpha = 0.1f)).clickable { openClubAttachment(context, file.url) }.padding(NbDimens.space12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+                            Icon(NbIcons.FileText, contentDescription = null, tint = textColor)
+                            Text(file.name.ifBlank { "Document" }, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    MessageType.Voice -> message.audioUrl?.let { url ->
+                        Row(modifier = Modifier.clip(RoundedCornerShape(NbDimens.radiusSm)).background(textColor.copy(alpha = 0.1f)).clickable { openClubAttachment(context, url) }.padding(NbDimens.space12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+                            Icon(NbIcons.Play, contentDescription = null, tint = textColor)
+                            Text("Voice message", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = textColor)
+                        }
+                    }
+                    MessageType.Text -> if (!message.text.isNullOrBlank()) Text(message.text.orEmpty(), style = MaterialTheme.typography.bodyLarge, color = textColor)
+                }
+                if (message.reactions.isNotEmpty()) Text(message.reactions.entries.joinToString("  ") { (emoji, users) -> "$emoji ${users.size}" }, style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.78f))
                 Text(message.createdAt?.toDate()?.time?.let(::formatRelativeTime) ?: "sending", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))
             }
         }
@@ -171,13 +253,64 @@ private fun ClubMessageBubble(message: Message, isViewer: Boolean, showSender: B
 }
 
 @Composable
-private fun ClubComposer(value: String, onValueChange: (String) -> Unit, onSend: () -> Unit, enabled: Boolean, sending: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = NbDimens.space12, vertical = NbDimens.space8), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
-        NbTextField(value = value, onValueChange = onValueChange, modifier = Modifier.weight(1f), placeholder = "Write to the club...", singleLine = false, maxLines = 5, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default), keyboardActions = KeyboardActions.Default)
-        IconButton(onClick = onSend, enabled = enabled, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(NbDimens.radiusMd)).background(if (enabled) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft).semantics { contentDescription = "Send club message" }) {
-            if (sending) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(NbIcons.Send, contentDescription = null, tint = if (enabled) Color.White else NbTheme.colors.inkFaint)
+private fun ClubComposer(value: String, replyTo: Message?, onValueChange: (String) -> Unit, onClearReply: () -> Unit, onSend: () -> Unit, enabled: Boolean, sending: Boolean) {
+    Column(modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = NbDimens.space12, vertical = NbDimens.space8)) {
+        replyTo?.let { reply ->
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = NbDimens.space4), verticalAlignment = Alignment.CenterVertically) {
+                Text("Replying to ${reply.senderName ?: "message"}", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted, modifier = Modifier.weight(1f))
+                IconButton(onClick = onClearReply, modifier = Modifier.size(28.dp)) { Icon(NbIcons.Close, contentDescription = "Cancel reply", tint = NbTheme.colors.inkMuted, modifier = Modifier.size(16.dp)) }
+            }
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+            NbTextField(value = value, onValueChange = onValueChange, modifier = Modifier.weight(1f), placeholder = "Write to the club...", singleLine = false, maxLines = 5, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default), keyboardActions = KeyboardActions.Default)
+            IconButton(onClick = onSend, enabled = enabled, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(NbDimens.radiusMd)).background(if (enabled) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft).semantics { contentDescription = "Send club message" }) {
+                if (sending) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(NbIcons.Send, contentDescription = null, tint = if (enabled) Color.White else NbTheme.colors.inkFaint)
+            }
         }
     }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ClubMessageActionSheet(
+    message: Message,
+    viewerId: String?,
+    onReply: () -> Unit,
+    onReaction: (String) -> Boolean,
+    onDeleteForMe: () -> Boolean,
+    onDeleteForEveryone: () -> Boolean,
+    onDismiss: () -> Unit,
+) {
+    var confirmDelete by remember(message.id) { mutableStateOf(false) }
+    NbBottomSheet(onDismiss = onDismiss) {
+        Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+            if (confirmDelete) {
+                Text("Delete message?", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                NbButton("Delete for me", { onDeleteForMe() }, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Secondary)
+                if (message.senderId == viewerId) NbButton("Delete for everyone", { onDeleteForEveryone() }, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Primary)
+                NbButton("Cancel", { confirmDelete = false }, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Ghost)
+            } else {
+                Text("React", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.inkMuted)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    listOf("👍", "❤️", "😂", "😮", "🙏").forEach { emoji -> Text(emoji, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.clickable { onReaction(emoji) }.padding(NbDimens.space8)) }
+                }
+                ClubActionRow(NbIcons.Reply, "Reply", onReply)
+                ClubActionRow(NbIcons.Trash, "Delete", { confirmDelete = true }, NbTheme.colors.brandPink)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClubActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, tint: Color = NbTheme.colors.ink) {
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(NbDimens.radiusSm)).clickable(onClick = onClick).padding(vertical = NbDimens.space12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium), color = tint)
+    }
+}
+
+private fun openClubAttachment(context: android.content.Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }
 
 @Composable

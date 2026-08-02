@@ -2,6 +2,7 @@ package com.nextbench.app.clubs
 
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.ClubSettings
+import com.nextbench.data.model.Message
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,6 +34,23 @@ class ClubsStateTest {
         assertFalse(state.canPost("member"))
         assertFalse(state.canSend("lead"))
         assertTrue(state.copy(composerText = "Hello").canSend("lead"))
+    }
+
+    @Test
+    fun `reply context does not bypass club posting policy`() {
+        val reply = Message(id = "message", senderId = "lead", text = "Original")
+        val state = ClubChatUiState(
+            club = Club(
+                leadId = "lead",
+                memberIds = listOf("lead", "member"),
+                settings = ClubSettings(onlyLeadsCanPost = true),
+            ),
+            composerText = "Reply",
+            replyTo = reply,
+        )
+
+        assertTrue(state.canSend("lead"))
+        assertFalse(state.canSend("member"))
     }
 
     @Test
