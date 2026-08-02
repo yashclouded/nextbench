@@ -111,6 +111,10 @@ class AuthViewModel @Inject constructor(
     fun backToEmail() = _state.update { it.copy(step = AuthStep.Email, otp = "", error = null, canResend = false) }
     fun enableResend() = _state.update { it.copy(canResend = true) }
 
+    suspend fun setPresence(uid: String, online: Boolean) {
+        repository.setPresence(uid, online)
+    }
+
     fun validateSignupDetails(): Boolean {
         val failure = signupFailure(state.value) ?: return true
         _state.update { it.copy(error = failure) }

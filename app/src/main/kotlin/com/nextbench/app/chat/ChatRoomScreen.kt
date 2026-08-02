@@ -9,6 +9,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -47,6 +52,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
@@ -84,7 +91,12 @@ import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
 import coil.compose.AsyncImage
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChatRoomScreen(
@@ -100,8 +112,12 @@ fun ChatRoomScreen(
     val context = LocalContext.current
     var showAttachmentPicker by remember { mutableStateOf(false) }
     var initialScrollComplete by remember { mutableStateOf(false) }
+    var typingClock by remember { mutableStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.stopTyping() }
+    }
     LaunchedEffect(state.messages.size) {
         if (state.messages.isEmpty()) return@LaunchedEffect
         val lastMessageIndex = state.messages.size
@@ -117,6 +133,17 @@ fun ChatRoomScreen(
     val other = state.room?.otherUser
     val otherName = other?.name?.ifBlank { null } ?: "NextBench member"
     val room = state.room?.room
+    val otherTyping = room?.typingUsers
+        ?.filterKeys { it != viewerId }
+        ?.values
+        ?.any { timestamp -> isUserTyping(timestamp.toDate().time, typingClock) } == true
+    LaunchedEffect(room?.typingUsers) {
+        if (room?.typingUsers.isNullOrEmpty()) return@LaunchedEffect
+        while (true) {
+            typingClock = System.currentTimeMillis()
+            delay(1_000L)
+        }
+    }
     val visualPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(viewModel::prepareAttachment)
     }
@@ -140,6 +167,9 @@ fun ChatRoomScreen(
                 avatar = other?.profilePicture,
                 verified = other?.verified == true,
                 school = other?.school,
+                online = isUserOnline(other?.online == true, other?.lastSeen?.toDate()?.time, typingClock),
+                lastSeenMillis = other?.lastSeen?.toDate()?.time,
+                typing = otherTyping,
                 productTitle = room?.productTitle,
                 onOpenProduct = room?.productId?.let { { onOpenProduct(it) } },
                 onOpenProfile = other?.uid?.let { { onOpenProfile(it) } },
@@ -158,10 +188,14 @@ fun ChatRoomScreen(
                     ) {
                         item { ConversationIntro(name = otherName, avatar = other?.profilePicture, verified = other?.verified == true) }
                         itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
+                            val previous = state.messages.getOrNull(index - 1)
+                            if (messageStartsNewDay(previous, message)) {
+                                DaySeparator(messageDayLabel(message.createdAt?.toDate()?.time))
+                            }
                             MessageBubble(
                                 message = message,
                                 isViewer = message.senderId == viewerId,
-                                showSender = index == 0 || state.messages[index - 1].senderId != message.senderId,
+                                showSender = previous == null || previous.senderId != message.senderId || messageStartsNewDay(previous, message),
                                 onLongPress = viewModel::openMessageActions,
                                 onOpenAttachment = { url -> openAttachment(context, url) },
                                 onRead = if (message.senderId != viewerId && viewerId != null) {
@@ -254,6 +288,9 @@ private fun ChatHeader(
     avatar: String?,
     verified: Boolean,
     school: String?,
+    online: Boolean,
+    lastSeenMillis: Long?,
+    typing: Boolean,
     productTitle: String?,
     onOpenProduct: (() -> Unit)?,
     onOpenProfile: (() -> Unit)?,
@@ -270,13 +307,20 @@ private fun ChatHeader(
                     Text(name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (verified) NbVerifiedBadge(size = 15.dp)
                 }
-                Text(
-                    text = listOfNotNull(school?.takeIf(String::isNotBlank), "Verified member".takeIf { verified }).joinToString("  · ").ifBlank { "Campus conversation" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NbTheme.colors.inkMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (typing) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                        TypingDots()
+                        Text("typing", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.brandTeal)
+                    }
+                } else {
+                    Text(
+                        text = chatPresenceLabel(online, lastSeenMillis, school, verified),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (online) NbTheme.colors.brandMint else NbTheme.colors.inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
         if (onOpenProduct != null && !productTitle.isNullOrBlank()) {
@@ -286,6 +330,114 @@ private fun ChatHeader(
         }
     }
 }
+
+@Composable
+private fun TypingDots() {
+    val transition = rememberInfiniteTransition(label = "typingDots")
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { index ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.32f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 480, delayMillis = index * 110),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "typingDot$index",
+            )
+            Box(
+                modifier = Modifier
+                    .size(4.dp)
+                    .alpha(alpha)
+                    .clip(RoundedCornerShape(NbDimens.radiusFull))
+                    .background(NbTheme.colors.brandTeal),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DaySeparator(label: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = NbDimens.space8),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = NbTheme.colors.border)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+        HorizontalDivider(modifier = Modifier.weight(1f), color = NbTheme.colors.border)
+    }
+}
+
+internal fun messageStartsNewDay(previous: Message?, current: Message, zoneId: ZoneId = ZoneId.systemDefault()): Boolean {
+    val currentDay = current.createdAt?.toDate()?.time?.let { Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate() }
+        ?: return previous == null
+    val previousDay = previous?.createdAt?.toDate()?.time?.let { Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate() }
+    return previousDay != currentDay
+}
+
+internal fun messageDayLabel(
+    timestampMillis: Long?,
+    nowMillis: Long = System.currentTimeMillis(),
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String {
+    timestampMillis ?: return "Today"
+    val date = Instant.ofEpochMilli(timestampMillis).atZone(zoneId).toLocalDate()
+    val today = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
+    return when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+    }
+}
+
+internal fun chatPresenceLabel(
+    online: Boolean,
+    lastSeenMillis: Long?,
+    school: String?,
+    verified: Boolean,
+    nowMillis: Long = System.currentTimeMillis(),
+): String = when {
+    isUserOnline(online, lastSeenMillis, nowMillis) -> "Online"
+    lastSeenMillis != null -> lastSeenLabel(lastSeenMillis, nowMillis)
+    else -> listOfNotNull(
+        school?.takeIf(String::isNotBlank),
+        "Verified member".takeIf { verified },
+    ).joinToString("  · ").ifBlank { "Campus conversation" }
+}
+
+internal fun isUserTyping(timestampMillis: Long?, nowMillis: Long = System.currentTimeMillis()): Boolean =
+    timestampMillis != null && nowMillis - timestampMillis < TypingStaleMillis
+
+internal fun isUserOnline(
+    online: Boolean,
+    lastSeenMillis: Long?,
+    nowMillis: Long = System.currentTimeMillis(),
+): Boolean = online && (lastSeenMillis == null || nowMillis - lastSeenMillis < OnlineThresholdMillis)
+
+internal fun lastSeenLabel(
+    lastSeenMillis: Long,
+    nowMillis: Long = System.currentTimeMillis(),
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String {
+    val elapsed = (nowMillis - lastSeenMillis).coerceAtLeast(0L)
+    if (elapsed < 60_000L) return "Active just now"
+    if (elapsed < RecentThresholdMillis) return "Active ${elapsed / 60_000L}m ago"
+
+    val lastSeen = Instant.ofEpochMilli(lastSeenMillis).atZone(zoneId)
+    val today = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
+    val days = java.time.temporal.ChronoUnit.DAYS.between(lastSeen.toLocalDate(), today)
+    return when {
+        days == 0L -> "Last seen ${lastSeen.format(DateTimeFormatter.ofPattern("h:mm a"))}"
+        days == 1L -> "Last seen yesterday"
+        days in 2..6 -> "Last seen ${days}d ago"
+        else -> "Last seen ${lastSeen.format(DateTimeFormatter.ofPattern("MMM d"))}"
+    }
+}
+
+private const val TypingStaleMillis = 5_000L
+private const val OnlineThresholdMillis = 90_000L
+private const val RecentThresholdMillis = 5 * 60_000L
 
 @Composable
 private fun ConversationIntro(name: String, avatar: String?, verified: Boolean) {

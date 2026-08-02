@@ -197,8 +197,31 @@ class AuthRepository @Inject constructor(
 
     suspend fun signOut(): AuthResult<Unit> = authResult {
         ensureConfigured()
+        auth.currentUser?.uid?.let { uid ->
+            runCatching {
+                refs.user(uid).update(
+                    mapOf(
+                        "online" to false,
+                        "lastSeen" to FieldValue.serverTimestamp(),
+                    ),
+                ).await()
+            }
+        }
         auth.signOut()
         Unit
+    }
+
+    suspend fun setPresence(uid: String, online: Boolean): Result<Unit> = runCatching {
+        ensureConfigured()
+        require(uid.isNotBlank() && auth.currentUser?.uid == uid) {
+            "Your session expired. Sign in and try again."
+        }
+        refs.user(uid).update(
+            mapOf(
+                "online" to online,
+                "lastSeen" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
     }
 
     suspend fun updateVerificationSubmission(

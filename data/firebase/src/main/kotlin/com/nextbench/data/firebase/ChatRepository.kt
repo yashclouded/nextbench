@@ -22,10 +22,13 @@ import javax.inject.Singleton
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
@@ -110,17 +113,27 @@ class ChatRepository @Inject constructor(
             }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun observeRoom(roomId: String, viewerId: String): Flow<ChatRoomDetail?> = configuredFlow(viewerId) {
         refs.chatRoom(roomId)
             .snapshotFlow()
-            .map { snapshot ->
-                val room = snapshot.toChatRoom() ?: return@map null
-                if (viewerId !in room.participants) return@map null
+            .flatMapLatest { snapshot ->
+                val room = snapshot.toChatRoom() ?: return@flatMapLatest flowOf(null)
+                if (viewerId !in room.participants) return@flatMapLatest flowOf(null)
                 val otherId = room.participants.firstOrNull { it != viewerId }
-                ChatRoomDetail(
-                    room = room,
-                    otherUser = otherId?.let { runCatching { loadUser(it) }.getOrNull() },
-                )
+                if (otherId.isNullOrBlank()) {
+                    flowOf(ChatRoomDetail(room = room, otherUser = null))
+                } else {
+                    refs.user(otherId).snapshotFlow().map { userSnapshot ->
+                        ChatRoomDetail(
+                            room = room,
+                            otherUser = userSnapshot
+                                .takeIf(DocumentSnapshot::exists)
+                                ?.toObject(UserData::class.java)
+                                ?.copy(uid = otherId),
+                        )
+                    }
+                }
             }
     }
 
@@ -272,6 +285,16 @@ class ChatRepository @Inject constructor(
                 "unreadBy" to FieldValue.arrayRemove(uid),
                 "deletedBy" to FieldValue.arrayRemove(uid),
             ),
+        ).await()
+    }
+
+    suspend fun setTyping(roomId: String, uid: String, typing: Boolean): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(isRoomParticipant(roomId, uid)) { "You are not a member of this conversation." }
+        refs.chatRoom(roomId).update(
+            "typingUsers.$uid",
+            if (typing) FieldValue.serverTimestamp() else FieldValue.delete(),
         ).await()
     }
 

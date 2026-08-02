@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
@@ -79,14 +80,18 @@ class ChatRoomViewModel @Inject constructor(
     private var roomJob: Job? = null
     private var messagesJob: Job? = null
     private var blockJob: Job? = null
+    private var typingIdleJob: Job? = null
+    private var typingRefreshJob: Job? = null
+    private var typingActive = false
     private var noticeId = 0L
 
     fun syncViewer(user: UserData?) {
         if (viewer?.uid == user?.uid && (viewer == null) == (user == null)) return
-        viewer = user
         roomJob?.cancel()
         messagesJob?.cancel()
         blockJob?.cancel()
+        stopTyping()
+        viewer = user
         _state.value = ChatRoomUiState(isLoading = user != null)
         val uid = user?.uid ?: return
 
@@ -121,7 +126,18 @@ class ChatRoomViewModel @Inject constructor(
     }
 
     fun setComposerText(value: String) {
-        _state.update { it.copy(composerText = value.take(ChatRepository.MessageCharacterLimit)) }
+        val normalized = value.take(ChatRepository.MessageCharacterLimit)
+        _state.update { it.copy(composerText = normalized) }
+        if (normalized.isBlank()) {
+            stopTyping()
+        } else {
+            startTyping()
+            typingIdleJob?.cancel()
+            typingIdleJob = viewModelScope.launch {
+                delay(TypingIdleMillis)
+                stopTyping()
+            }
+        }
     }
 
     fun prepareAttachment(uri: android.net.Uri, kind: ChatAttachmentKind? = null) {
@@ -194,6 +210,7 @@ class ChatRoomViewModel @Inject constructor(
         val text = snapshot.composerText.trim()
         if (text.isEmpty()) return false
         _state.update { it.copy(isSending = true) }
+        stopTyping()
         viewModelScope.launch {
             repository.sendText(roomId, user, text, snapshot.replyTo).fold(
                 onSuccess = {
@@ -265,12 +282,52 @@ class ChatRoomViewModel @Inject constructor(
 
     private fun requireViewerId(): String = requireNotNull(viewer?.uid)
 
+    private fun startTyping() {
+        val uid = viewer?.uid ?: return
+        if (state.value.blocked || state.value.pendingRequest) return
+        if (!typingActive) {
+            typingActive = true
+            viewModelScope.launch { repository.setTyping(roomId, uid, true) }
+        }
+        if (typingRefreshJob?.isActive != true) {
+            typingRefreshJob = viewModelScope.launch {
+                while (typingActive) {
+                    delay(TypingRefreshMillis)
+                    if (typingActive) repository.setTyping(roomId, uid, true)
+                }
+            }
+        }
+    }
+
+    fun stopTyping() {
+        typingIdleJob?.cancel()
+        typingIdleJob = null
+        typingRefreshJob?.cancel()
+        typingRefreshJob = null
+        if (!typingActive) return
+        typingActive = false
+        val uid = viewer?.uid ?: return
+        viewModelScope.launch { repository.setTyping(roomId, uid, false) }
+    }
+
     private fun showNotice(message: String, kind: ChatNoticeKind) {
         _state.update { it.copy(notice = ChatNotice(++noticeId, message, kind)) }
     }
 
     private fun showLoadError(error: Throwable) {
         _state.update { it.copy(isLoading = false, error = error.chatMessage()) }
+    }
+
+    override fun onCleared() {
+        typingIdleJob?.cancel()
+        typingRefreshJob?.cancel()
+        state.value.attachment?.file?.delete()
+        super.onCleared()
+    }
+
+    companion object {
+        private const val TypingIdleMillis = 3_000L
+        private const val TypingRefreshMillis = 2_000L
     }
 }
 

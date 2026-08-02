@@ -24,6 +24,7 @@ data class ChatRoom(
     val archivedBy: List<String> = emptyList(),
     val pinnedBy: List<String> = emptyList(),
     val deletedBy: List<String> = emptyList(),
+    val typingUsers: Map<String, Timestamp> = emptyMap(),
 )
 
 /**

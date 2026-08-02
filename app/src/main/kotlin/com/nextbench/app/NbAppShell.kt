@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +39,10 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nextbench.app.navigation.NbBottomBar
 import com.nextbench.app.navigation.NbNavHost
 import com.nextbench.app.navigation.NbRoute
@@ -55,6 +59,7 @@ import com.nextbench.core.designsystem.NbMotion
 import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.pressScale
 import com.nextbench.data.firebase.SessionState
+import kotlinx.coroutines.delay
 
 /**
  * The single app chrome used by every authenticated screen. Keeping the scaffold
@@ -84,6 +89,7 @@ fun NbAppShell(
     val showAnimatedChrome = currentPath != NbRoute.Feed.path || feedChromeVisible
 
     PushPermissionCoordinator(signedInUid)
+    PresenceCoordinator(signedInUid, authViewModel::setPresence)
     LaunchedEffect(pendingDeepLinkIntent, signedInUid, onboardingState.completed, currentPath) {
         pendingDeepLinkIntent ?: return@LaunchedEffect
         val initialJourneyFinished = currentPath != NbRoute.Splash.path && currentPath != NbRoute.Onboarding.path
@@ -143,6 +149,39 @@ fun NbAppShell(
         )
     }
 }
+
+@Composable
+private fun PresenceCoordinator(
+    uid: String?,
+    setPresence: suspend (String, Boolean) -> Unit,
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var foreground by remember { mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> foreground = true
+                Lifecycle.Event.ON_STOP -> foreground = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(uid, foreground) {
+        val activeUid = uid ?: return@LaunchedEffect
+        setPresence(activeUid, foreground)
+        if (!foreground) return@LaunchedEffect
+        while (true) {
+            delay(PresenceHeartbeatMillis)
+            setPresence(activeUid, true)
+        }
+    }
+}
+
+private const val PresenceHeartbeatMillis = 60_000L
 
 private fun navigateBackOrHome(navController: NavHostController) {
     if (!navController.popBackStack()) {
