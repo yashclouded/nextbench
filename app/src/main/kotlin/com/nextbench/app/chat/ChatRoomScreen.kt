@@ -612,7 +612,7 @@ private fun VoiceMessageBubble(
                     .height(28.dp)
                     .clip(RoundedCornerShape(NbDimens.radiusSm))
                     .onSizeChanged { waveformWidth = it.width.coerceAtLeast(1) }
-                    .pointerInput(message.id, durationMillis) {
+                    .pointerInput(message.id, durationMillis, waveformWidth) {
                         detectTapGestures { point -> onSeek(message.id, point.x / waveformWidth.toFloat()) }
                     }
                     .semantics { contentDescription = "Voice message playback progress" },
@@ -625,7 +625,7 @@ private fun VoiceMessageBubble(
             }
         }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(formatVoiceTime(if (active && playback.isPlaying) positionMillis else durationMillis), style = MaterialTheme.typography.labelSmall, color = muted)
+            Text(formatVoiceTime(if (active && (playback.isPlaying || positionMillis > 0L)) positionMillis else durationMillis), style = MaterialTheme.typography.labelSmall, color = muted)
             Spacer(Modifier.weight(1f))
             if (active && playback.error != null) Text("Try again", style = MaterialTheme.typography.labelSmall, color = if (isViewer) Color.White else NbTheme.colors.brandTeal, modifier = Modifier.clickable { onToggle(message) })
             else {
