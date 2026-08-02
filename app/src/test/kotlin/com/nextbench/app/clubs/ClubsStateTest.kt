@@ -34,4 +34,16 @@ class ClubsStateTest {
         assertFalse(state.canSend("lead"))
         assertTrue(state.copy(composerText = "Hello").canSend("lead"))
     }
+
+    @Test
+    fun `club settings distinguish lead and member permissions`() {
+        val state = ClubSettingsUiState(
+            club = Club(leadId = "lead", memberIds = listOf("lead", "member")),
+        )
+
+        assertTrue(state.isLead("lead"))
+        assertFalse(state.isLead("member"))
+        assertTrue(state.isMember("member"))
+        assertFalse(state.isMember("outsider"))
+    }
 }

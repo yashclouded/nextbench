@@ -3,6 +3,7 @@ package com.nextbench.data.firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.nextbench.data.model.Club
+import com.nextbench.data.model.ClubSettings
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.MessageType
@@ -120,6 +121,38 @@ class ClubRepository @Inject constructor(
             require(uid in club.memberIds) { "You are not a member of this club." }
             transaction.update(clubRef, clubLeaveUpdatePayload(uid, club.memberCount))
         }.await()
+    }
+
+    suspend fun updateSettings(uid: String, clubId: String, settings: ClubSettings): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val clubRef = refs.club(clubId)
+        val club = clubRef.get().await().toClub() ?: error("This club is no longer available.")
+        require(uid == club.leadId) { "Only the club lead can change shared settings." }
+        clubRef.update(
+            mapOf(
+                "settings.hideMembersAbove50" to settings.hideMembersAbove50,
+                "settings.onlyLeadsCanPost" to settings.onlyLeadsCanPost,
+                "settings.slowMode" to settings.slowMode.coerceIn(0, 300),
+                "settings.muteNotifications" to settings.muteNotifications,
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+    }
+
+    suspend fun updateVisibility(uid: String, clubId: String, type: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(type == "public" || type == "private") { "Choose a valid club visibility." }
+        val clubRef = refs.club(clubId)
+        val club = clubRef.get().await().toClub() ?: error("This club is no longer available.")
+        require(uid == club.leadId) { "Only the club lead can change shared settings." }
+        clubRef.update(
+            mapOf(
+                "type" to type,
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
     }
 
     suspend fun sendText(clubId: String, sender: UserData, text: String): Result<Message> = runCatching {

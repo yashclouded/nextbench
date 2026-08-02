@@ -68,7 +68,7 @@ import com.nextbench.data.model.UserData
 @Composable
 fun ClubChatScreen(
     user: UserData?,
-    onLeave: () -> Unit,
+    onOpenSettings: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ClubChatViewModel = hiltViewModel(),
 ) {
@@ -83,7 +83,7 @@ fun ClubChatScreen(
             state.isLoading && state.club == null -> ClubChatLoading()
             state.error != null && state.club == null -> NbEmptyState(icon = NbIcons.Messages, title = "Club unavailable", message = state.error.orEmpty(), modifier = Modifier.fillMaxSize())
             else -> {
-                ClubChatHeader(club = state.club, canLeave = state.isMember(viewerId), leaving = state.isLeaving, onLeave = { if (viewModel.leaveClub()) onLeave() })
+                ClubChatHeader(club = state.club, onSettings = { clubId -> onOpenSettings(clubId) })
                 HorizontalDivider(color = NbTheme.colors.border)
                 Box(modifier = Modifier.weight(1f)) {
                     if (state.messages.isEmpty()) {
@@ -118,7 +118,7 @@ fun ClubChatScreen(
 }
 
 @Composable
-private fun ClubChatHeader(club: Club?, canLeave: Boolean, leaving: Boolean, onLeave: () -> Unit) {
+private fun ClubChatHeader(club: Club?, onSettings: (String) -> Unit) {
     val current = club ?: return
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16, vertical = NbDimens.space12), verticalAlignment = Alignment.CenterVertically) {
         ClubHeaderAvatar(current)
@@ -127,10 +127,8 @@ private fun ClubChatHeader(club: Club?, canLeave: Boolean, leaving: Boolean, onL
             Text(current.name.ifBlank { "Campus club" }, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${current.memberCount} members  ·  ${if (current.type == "private") "Private" else "Public"}", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
         }
-        if (canLeave) {
-            IconButton(onClick = onLeave, enabled = !leaving, modifier = Modifier.semantics { contentDescription = "Leave club" }) {
-                if (leaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = NbTheme.colors.brandPink, strokeWidth = 2.dp) else Icon(NbIcons.Logout, contentDescription = null, tint = NbTheme.colors.brandPink)
-            }
+        IconButton(onClick = { onSettings(current.id) }, modifier = Modifier.semantics { contentDescription = "Open club settings" }) {
+            Icon(NbIcons.More, contentDescription = null, tint = NbTheme.colors.inkMuted)
         }
     }
 }

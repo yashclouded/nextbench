@@ -41,6 +41,7 @@ import com.nextbench.app.legal.LegalDocument
 import com.nextbench.app.legal.LegalDocumentScreen
 import com.nextbench.app.clubs.ClubChatScreen
 import com.nextbench.app.clubs.ClubJoinScreen
+import com.nextbench.app.clubs.ClubSettingsScreen
 import com.nextbench.app.clubs.ClubsScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.app.profile.ProfileScreen
@@ -429,7 +430,10 @@ fun NbNavHost(
             route = NbRoute.MessagesClub.path,
             arguments = listOf(navArgument("clubId") { type = NavType.StringType }),
         ) { GuardedDestination(navController, NbRoute.MessagesClub.path, authViewModel) {
-            ClubChatScreen(user = (session as? SessionState.SignedIn)?.userData, onLeave = { navController.popBackStack() })
+            ClubChatScreen(
+                user = (session as? SessionState.SignedIn)?.userData,
+                onOpenSettings = { clubId -> navController.navigate(NbRoute.clubSettings(clubId)) { launchSingleTop = true } },
+            )
         } }
         composable(
             route = NbRoute.Club.path,
@@ -439,9 +443,28 @@ fun NbNavHost(
                 navDeepLink { uriPattern = "nextbench://club/{clubId}" },
             ),
         ) { GuardedDestination(navController, NbRoute.Club.path, authViewModel) {
-            ClubChatScreen(user = (session as? SessionState.SignedIn)?.userData, onLeave = { navController.popBackStack() })
+            ClubChatScreen(
+                user = (session as? SessionState.SignedIn)?.userData,
+                onOpenSettings = { clubId -> navController.navigate(NbRoute.clubSettings(clubId)) { launchSingleTop = true } },
+            )
         } }
-        composable(NbRoute.ClubSettings.path) { GuardedDestination(navController, NbRoute.ClubSettings.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club settings", "Manage members, permissions, and notifications for your club.") } }
+        composable(
+            route = NbRoute.ClubSettings.path,
+            arguments = listOf(navArgument("clubId") { type = NavType.StringType }),
+        ) {
+            GuardedDestination(navController, NbRoute.ClubSettings.path, authViewModel) {
+                ClubSettingsScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onBack = { navigateBackOrFeed(navController) },
+                    onLeave = {
+                        navController.navigate(NbRoute.Clubs.path) {
+                            popUpTo(NbRoute.Clubs.path) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    },
+                )
+            }
+        }
         composable(
             route = NbRoute.ClubJoin.path,
             arguments = listOf(navArgument("inviteCode") { type = NavType.StringType }),
