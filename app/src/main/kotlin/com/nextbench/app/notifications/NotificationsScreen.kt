@@ -96,7 +96,18 @@ fun NotificationsScreen(
             Row(modifier = Modifier.fillMaxWidth().background(NbTheme.colors.brandTeal.copy(alpha = 0.08f)).padding(horizontal = NbDimens.space16, vertical = NbDimens.space8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
                 Icon(NbIcons.Bell, contentDescription = null, tint = NbTheme.colors.brandTeal, modifier = Modifier.size(19.dp))
                 Text("Get updates even when NextBench is closed.", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.ink, modifier = Modifier.weight(1f))
-                Text("Enable", style = MaterialTheme.typography.labelMedium, color = NbTheme.colors.brandTeal, modifier = Modifier.clickable { pushPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }.padding(NbDimens.space8))
+                Text(
+                    "Enable",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NbTheme.colors.brandTeal,
+                    modifier = Modifier
+                        .clickable {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                pushPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+                        .padding(NbDimens.space8),
+                )
             }
         }
         FilterRow(state = state, onSelect = viewModel::selectFilter)

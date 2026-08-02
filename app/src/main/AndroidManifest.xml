@@ -32,24 +32,26 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="nextbench" android:host="community" />
-                <data android:scheme="nextbench" android:host="marketplace" />
-                <data android:scheme="nextbench" android:host="post" />
-                <data android:scheme="nextbench" android:host="product" />
-                <data android:scheme="nextbench" android:host="profile" />
-                <data android:scheme="nextbench" android:host="u" />
-                <data android:scheme="nextbench" android:host="messages" />
-                <data android:scheme="nextbench" android:host="chat" />
-                <data android:scheme="nextbench" android:host="club" />
-                <data android:scheme="nextbench" android:host="notifications" />
-                <data android:scheme="nextbench" android:host="invite" />
+                <data android:scheme="nextbench" />
+                <data android:host="community" />
+                <data android:host="marketplace" />
+                <data android:host="post" />
+                <data android:host="product" />
+                <data android:host="profile" />
+                <data android:host="u" />
+                <data android:host="messages" />
+                <data android:host="chat" />
+                <data android:host="club" />
+                <data android:host="notifications" />
+                <data android:host="invite" />
             </intent-filter>
 
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="nextbench.in" />
+                <data android:scheme="https" />
+                <data android:host="nextbench.in" />
             </intent-filter>
         </activity>
 
