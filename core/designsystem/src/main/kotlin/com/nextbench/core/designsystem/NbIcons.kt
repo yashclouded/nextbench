@@ -225,6 +225,31 @@ object NbIcons {
         }
     }
 
+    val Copy: ImageVector by lazy {
+        nbVector("Copy") {
+            line {
+                moveTo(9f, 8f); lineTo(18f, 8f)
+                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 20f, 10f)
+                lineTo(20f, 19f)
+                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 18f, 21f)
+                lineTo(9f, 21f)
+                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 7f, 19f)
+                lineTo(7f, 10f)
+                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 9f, 8f)
+                close()
+            }
+            line {
+                moveTo(7f, 16f); lineTo(6f, 16f)
+                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 4f, 14f)
+                lineTo(4f, 5f)
+                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 6f, 3f)
+                lineTo(15f, 3f)
+                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 17f, 5f)
+                lineTo(17f, 8f)
+            }
+        }
+    }
+
     val More: ImageVector by lazy {
         nbVector("More") {
             solid { circle(5f, 12f, 1.6f) }

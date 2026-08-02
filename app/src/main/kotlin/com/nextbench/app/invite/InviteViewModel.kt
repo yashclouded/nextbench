@@ -144,6 +144,10 @@ class InviteViewModel @Inject constructor(
         return true
     }
 
+    fun inviteLinkCopied() {
+        showNotice("Invite link copied.", InviteNoticeKind.Success)
+    }
+
     fun retry() {
         val currentUid = viewerUid ?: return
         viewerUid = null
@@ -161,7 +165,7 @@ class InviteViewModel @Inject constructor(
     private fun InviteUiState.merge(content: InviteContent): InviteUiState = copy(
         inviteCode = content.referralCode ?: inviteCode,
         referralCount = content.referralCount,
-        referredBy = content.referredBy,
+        referredBy = content.referredBy ?: referredBy,
         isLoading = false,
         error = null,
     )

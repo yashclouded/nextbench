@@ -126,6 +126,7 @@ private fun NbTopBar(
         path == NbRoute.Search.path -> "Search"
         path == NbRoute.Notifications.path -> "Notifications"
         path == NbRoute.Wishlist.path -> "Saved"
+        path == NbRoute.Invite.path -> "Invite friends"
         path == NbRoute.Sell.path -> "List an item"
         path?.startsWith("edit-item/") == true -> "Edit listing"
         path == NbRoute.Admin.path -> "Admin"

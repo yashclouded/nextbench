@@ -35,6 +35,7 @@ import com.nextbench.app.marketplace.ProductDetailScreen
 import com.nextbench.app.marketplace.ProductComposerScreen
 import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.notifications.NotificationsScreen
+import com.nextbench.app.invite.InviteScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.app.profile.ProfileScreen
 import com.nextbench.app.profile.PublicProfileScreen
@@ -392,7 +393,11 @@ fun NbNavHost(
         composable(NbRoute.Club.path) { GuardedDestination(navController, NbRoute.Club.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club", "A focused space for your campus group is coming together here.") } }
         composable(NbRoute.ClubSettings.path) { GuardedDestination(navController, NbRoute.ClubSettings.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club settings", "Manage members, permissions, and notifications for your club.") } }
         composable(NbRoute.ClubJoin.path) { GuardedDestination(navController, NbRoute.ClubJoin.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Join a club", "Enter an invite and find your people on campus.") } }
-        composable(NbRoute.Invite.path) { GuardedDestination(navController, NbRoute.Invite.path, authViewModel) { PlaceholderScreen(NbIcons.Share, "Invite", "Bring trusted classmates into your campus community.") } }
+        composable(NbRoute.Invite.path) {
+            GuardedDestination(navController, NbRoute.Invite.path, authViewModel) {
+                InviteScreen(user = (session as? SessionState.SignedIn)?.userData)
+            }
+        }
         composable(NbRoute.Admin.path) { GuardedDestination(navController, NbRoute.Admin.path, authViewModel) { PlaceholderScreen(NbIcons.Check, "Admin", "Moderation and verification tools will appear here.") } }
 
         composable(NbRoute.Login.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Login, navController = navController) }
