@@ -48,10 +48,8 @@ import com.nextbench.app.profile.ProfileScreen
 import com.nextbench.app.profile.PublicProfileScreen
 import com.nextbench.app.search.SearchScreen
 import com.nextbench.data.firebase.SessionState
-import com.nextbench.app.ui.PlaceholderScreen
 import com.nextbench.app.ui.SplashScreen
 import com.nextbench.app.verification.VerificationScreen
-import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbMotion
 
 /**
