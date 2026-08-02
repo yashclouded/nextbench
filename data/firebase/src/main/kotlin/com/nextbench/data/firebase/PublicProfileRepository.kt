@@ -1,7 +1,6 @@
 package com.nextbench.data.firebase
 
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldPath
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
@@ -79,12 +78,9 @@ class PublicProfileRepository @Inject constructor(
         val targetNetwork = (followerIds + followingIds).toSet()
         val mutualIds = targetNetwork.intersect(viewerNetwork).filter { it != viewerId }.toList()
         val displayIds = (followerIds.take(MaxListUsers) + followingIds.take(MaxListUsers) + mutualIds.take(MaxMutualUsers)).distinct()
-        val users = displayIds.chunked(MaxUserBatch).map { ids ->
-            async {
-                refs.users.whereIn(FieldPath.documentId(), ids).get().await().documents
-                    .mapNotNull { snapshot -> snapshot.toObject(UserData::class.java)?.copy(uid = snapshot.id) }
-            }
-        }.flatMap { it.await() }.associateBy(UserData::uid)
+        val users = displayIds.chunked(MaxUserBatch)
+            .flatMap { ids -> functions.getPublicUsers(ids).mapNotNull(Map<String, Any?>::toPublicUser) }
+            .associateBy(UserData::uid)
         PublicProfileStats(
             followersCount = followerIds.size,
             followingCount = followingIds.size,

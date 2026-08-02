@@ -33,6 +33,10 @@ class NbFunctions @Inject constructor(
     suspend fun searchPublicUsers(params: Map<String, Any?>): List<Map<String, Any?>> =
         callMap("searchPublicUsers", params).mapList("users")
 
+    suspend fun getPublicUsers(userIds: List<String>): List<Map<String, Any?>> =
+        callMap("getPublicUsers", mapOf("userIds" to userIds.distinct().filter(String::isNotBlank).take(50)))
+            .mapList("users")
+
     suspend fun getPublicProfile(userId: String): Map<String, Any?>? =
         callMap("getPublicProfile", mapOf("userId" to userId))["user"].asNullableStringMap()
 
