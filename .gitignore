@@ -9,6 +9,10 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+node_modules/
+functions-android/lib/
+firebase-debug.log
+firebase-debug.*.log
 
 # Secrets — never commit
 google-services.json

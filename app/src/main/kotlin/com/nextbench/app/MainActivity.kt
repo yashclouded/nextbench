@@ -1,5 +1,6 @@
 package com.nextbench.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,6 +20,8 @@ private const val DarkThemeKey = "dark_theme"
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private var pendingDeepLinkIntent by mutableStateOf<Intent?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -47,8 +50,16 @@ class MainActivity : ComponentActivity() {
                         darkThemeOverride = next
                         preferences.edit().putBoolean(DarkThemeKey, next).apply()
                     },
+                    pendingDeepLinkIntent = pendingDeepLinkIntent,
+                    onDeepLinkHandled = { pendingDeepLinkIntent = null },
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.data != null) pendingDeepLinkIntent = intent
     }
 }

@@ -1,5 +1,6 @@
 package com.nextbench.app
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nextbench.app.navigation.NbBottomBar
 import com.nextbench.app.navigation.NbNavHost
 import com.nextbench.app.navigation.NbRoute
@@ -51,6 +53,7 @@ import com.nextbench.core.designsystem.NbLogo
 import com.nextbench.core.designsystem.NbMotion
 import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.pressScale
+import com.nextbench.data.firebase.SessionState
 
 /**
  * The single app chrome used by every authenticated screen. Keeping the scaffold
@@ -60,6 +63,8 @@ import com.nextbench.core.designsystem.pressScale
 @Composable
 fun NbAppShell(
     onToggleTheme: () -> Unit,
+    pendingDeepLinkIntent: Intent? = null,
+    onDeepLinkHandled: () -> Unit = {},
     navController: NavHostController = rememberNavController(),
     authViewModel: AuthViewModel = hiltViewModel(),
 ) {
@@ -67,11 +72,22 @@ fun NbAppShell(
     val currentPath = backStackEntry?.destination?.route
     val chrome = resolveChrome(currentPath)
     val selectedTab = NbRoute.tabFor(currentPath) ?: NbTab.Feed
+    val session by authViewModel.session.collectAsStateWithLifecycle()
+    val signedInUid = (session as? SessionState.SignedIn)?.firebaseUser?.uid
     var feedChromeVisible by remember { mutableStateOf(true) }
     LaunchedEffect(currentPath) {
         if (currentPath != NbRoute.Feed.path) feedChromeVisible = true
     }
     val showAnimatedChrome = currentPath != NbRoute.Feed.path || feedChromeVisible
+
+    PushPermissionCoordinator(signedInUid)
+    LaunchedEffect(pendingDeepLinkIntent, signedInUid) {
+        pendingDeepLinkIntent ?: return@LaunchedEffect
+        if (signedInUid != null) {
+            navController.handleDeepLink(pendingDeepLinkIntent)
+            onDeepLinkHandled()
+        }
+    }
 
     BackHandler(enabled = chrome.canNavigateBack) {
         navigateBackOrHome(navController)

@@ -210,6 +210,9 @@ class AuthViewModel @Inject constructor(
         if (signOutState.value.isLoading) return
         _signOutState.value = SignOutUiState(isLoading = true)
         viewModelScope.launch {
+            (session.value as? SessionState.SignedIn)?.firebaseUser?.uid?.let {
+                notificationRepository.removeMessagingToken(it)
+            }
             when (val result = repository.signOut()) {
                 is AuthResult.Success -> _signOutState.value = SignOutUiState()
                 is AuthResult.Failure -> _signOutState.value = SignOutUiState(error = result.error)

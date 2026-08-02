@@ -2,7 +2,6 @@ package com.nextbench.data.firebase
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.messaging.FirebaseMessaging
 import com.nextbench.data.model.Notification
 import javax.inject.Inject
@@ -18,10 +17,12 @@ import kotlinx.coroutines.tasks.await
 class NotificationRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
     private val refsProvider: Provider<FirestoreRefs>,
+    private val functionsProvider: Provider<NbFunctions>,
     private val messagingProvider: Provider<FirebaseMessaging>,
 ) {
     private val auth get() = authProvider.get()
     private val refs get() = refsProvider.get()
+    private val functions get() = functionsProvider.get()
     private val messaging get() = messagingProvider.get()
 
     fun observeNotifications(uid: String): Flow<List<Notification>> = configuredFlow(uid) {
@@ -72,14 +73,21 @@ class NotificationRepository @Inject constructor(
         ensureConfigured()
         requireAuthenticated(uid)
         val token = messaging.token.await().takeIf(String::isNotBlank) ?: return@runCatching
-        refs.user(uid).update("fcmTokens", FieldValue.arrayUnion(token)).await()
+        check(functions.registerAndroidPushToken(token)) { "Push token registration was rejected." }
     }
 
     suspend fun registerMessagingToken(uid: String, token: String): Result<Unit> = runCatching {
         ensureConfigured()
         requireAuthenticated(uid)
         require(token.isNotBlank()) { "Notification token is missing." }
-        refs.user(uid).update("fcmTokens", FieldValue.arrayUnion(token)).await()
+        check(functions.registerAndroidPushToken(token)) { "Push token registration was rejected." }
+    }
+
+    suspend fun removeMessagingToken(uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val token = messaging.token.await().takeIf(String::isNotBlank) ?: return@runCatching
+        check(functions.removeAndroidPushToken(token)) { "Push token removal was rejected." }
     }
 
     private fun requireAuthenticated(uid: String) {

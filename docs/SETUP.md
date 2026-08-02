@@ -34,7 +34,15 @@ Enable the same Firebase products used by the website:
 - Cloud Functions
 - Cloud Messaging
 
-The Android app consumes the existing deployed backend. Do not deploy different Firestore rules or change collection schemas from this repository.
+The Android app consumes the website's existing deployed backend. This repository also owns an isolated `android-push` Functions codebase for Android FCM token registration and direct-message delivery. It does not deploy Firestore rules and cannot replace the website's default Functions codebase.
+
+Build and deploy only that isolated codebase with:
+
+```bash
+npm install --prefix functions-android
+npm test --prefix functions-android
+firebase deploy --only functions:android-push
+```
 
 ## 3. Build and test
 

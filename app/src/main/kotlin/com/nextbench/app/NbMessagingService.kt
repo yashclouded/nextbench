@@ -3,6 +3,7 @@ package com.nextbench.app
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.Manifest
@@ -31,13 +32,7 @@ class NbMessagingService : FirebaseMessagingService() {
 
     override fun onCreate() {
         super.onCreate()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(ChannelId, "NextBench updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    description = "Messages, marketplace updates, and account activity"
-                },
-            )
-        }
+        createNotificationChannels(this)
     }
 
     override fun onNewToken(token: String) {
@@ -58,7 +53,7 @@ class NbMessagingService : FirebaseMessagingService() {
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            message.messageId?.hashCode() ?: body.hashCode(),
+            message.data["notificationId"]?.hashCode() ?: message.messageId?.hashCode() ?: body.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -75,19 +70,35 @@ class NbMessagingService : FirebaseMessagingService() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (permissionGranted && NotificationManagerCompat.from(this).areNotificationsEnabled()) {
             runCatching {
-                NotificationManagerCompat.from(this).notify(message.messageId?.hashCode() ?: body.hashCode(), notification)
+                val notificationId = message.data["notificationId"]?.hashCode()
+                    ?: message.messageId?.hashCode()
+                    ?: body.hashCode()
+                NotificationManagerCompat.from(this).notify(notificationId, notification)
             }
         }
     }
 
     companion object {
-        private const val ChannelId = "nextbench_updates"
+        internal const val ChannelId = "nextbench_updates"
     }
 
     override fun onDestroy() {
         serviceScope.cancel()
         super.onDestroy()
     }
+}
+
+internal fun createNotificationChannels(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+        NotificationChannel(
+            NbMessagingService.ChannelId,
+            "NextBench updates",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Messages, marketplace updates, and account activity"
+        },
+    )
 }
 
 internal fun String.toAppDeepLink(): String? {

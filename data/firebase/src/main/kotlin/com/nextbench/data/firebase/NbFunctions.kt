@@ -37,6 +37,12 @@ class NbFunctions @Inject constructor(
         callMap("getPublicUsers", mapOf("userIds" to userIds.distinct().filter(String::isNotBlank).take(50)))
             .mapList("users")
 
+    suspend fun registerAndroidPushToken(token: String): Boolean =
+        callMap("registerAndroidPushToken", mapOf("token" to token))["success"] as? Boolean ?: false
+
+    suspend fun removeAndroidPushToken(token: String): Boolean =
+        callMap("removeAndroidPushToken", mapOf("token" to token))["success"] as? Boolean ?: false
+
     suspend fun getPublicProfile(userId: String): Map<String, Any?>? =
         callMap("getPublicProfile", mapOf("userId" to userId))["user"].asNullableStringMap()
 
