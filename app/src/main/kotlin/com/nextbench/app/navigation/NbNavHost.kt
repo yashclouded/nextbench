@@ -22,6 +22,7 @@ import com.nextbench.app.auth.AuthGate
 import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.app.auth.requirementForRoute
 import com.nextbench.app.auth.AuthScreen
+import com.nextbench.app.auth.OrganizationSignupScreen
 import com.nextbench.app.chat.ChatRoomScreen
 import com.nextbench.app.chat.MessagesScreen
 import com.nextbench.app.create.CreateScreen
@@ -461,7 +462,31 @@ fun NbNavHost(
         }
         composable(NbRoute.Login.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Login, navController = navController) }
         composable(NbRoute.Signup.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Signup, navController = navController) }
-        composable(NbRoute.OrgSignup.path) { PlaceholderScreen(NbIcons.Profile, "For organizations", "Create a verified organization profile for your campus.") }
+        composable(NbRoute.OrgSignup.path) {
+            OrganizationSignupScreen(
+                onBack = { navigateBackOrFeed(navController) },
+                onTerms = { navController.navigate(NbRoute.Terms.path) },
+                onPrivacy = { navController.navigate(NbRoute.Privacy.path) },
+                onStudentSignup = {
+                    navController.navigate(NbRoute.Signup.path) {
+                        popUpTo(NbRoute.OrgSignup.path) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onSignIn = {
+                    navController.navigate(NbRoute.Login.path) {
+                        popUpTo(NbRoute.OrgSignup.path) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onRegistered = {
+                    navController.navigate(NbRoute.Verification.path) {
+                        popUpTo(NbRoute.OrgSignup.path) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
         composable(NbRoute.Verification.path) {
             GuardedDestination(navController, NbRoute.Verification.path, authViewModel) {
                 val userData = (session as? SessionState.SignedIn)?.userData
