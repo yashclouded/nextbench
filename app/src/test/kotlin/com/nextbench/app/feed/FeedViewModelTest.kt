@@ -10,6 +10,16 @@ import org.junit.Test
 
 class FeedViewModelTest {
     @Test
+    fun `display mode starts editorial and can be switched to list`() {
+        var state = FeedUiState()
+        assertEquals(FeedDisplayMode.Editorial, state.displayMode)
+
+        state = state.copy(displayMode = FeedDisplayMode.List)
+
+        assertEquals(FeedDisplayMode.List, state.displayMode)
+    }
+
+    @Test
     fun `signed out viewers are never considered authenticated`() {
         assertFalse(FeedViewer().signedIn)
         assertTrue(FeedViewer(uid = "student-1").signedIn)

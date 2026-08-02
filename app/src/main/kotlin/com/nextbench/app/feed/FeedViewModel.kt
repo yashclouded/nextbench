@@ -27,6 +27,8 @@ data class FeedViewer(
 
 enum class FeedNoticeKind { Info, Success, Error }
 
+enum class FeedDisplayMode { Editorial, List }
+
 @Immutable
 data class FeedNotice(
     val id: Long,
@@ -38,6 +40,7 @@ data class FeedNotice(
 data class FeedUiState(
     val posts: List<Post> = emptyList(),
     val mode: FeedMode = FeedMode.ForYou,
+    val displayMode: FeedDisplayMode = FeedDisplayMode.Editorial,
     val upvotedPostIds: Set<String> = emptySet(),
     val downvotedPostIds: Set<String> = emptySet(),
     val savedPostIds: Set<String> = emptySet(),
@@ -93,6 +96,11 @@ class FeedViewModel @Inject constructor(
         if (mode == FeedMode.Following && !viewer.signedIn) return
         _state.update { it.copy(mode = mode) }
         loadFirstPage(clearContent = true)
+    }
+
+    fun selectDisplayMode(displayMode: FeedDisplayMode) {
+        if (state.value.displayMode == displayMode) return
+        _state.update { it.copy(displayMode = displayMode) }
     }
 
     fun refresh() = loadFirstPage(clearContent = false)

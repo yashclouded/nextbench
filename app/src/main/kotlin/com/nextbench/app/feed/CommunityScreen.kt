@@ -71,6 +71,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -133,6 +134,7 @@ fun CommunityScreen(
         viewer = viewer,
         listState = listState,
         onSelectMode = viewModel::selectMode,
+        onSelectDisplayMode = viewModel::selectDisplayMode,
         onRefresh = {
             viewModel.refresh()
             storyViewModel.refresh()
@@ -243,6 +245,7 @@ private fun CommunityContent(
     viewer: FeedViewer,
     listState: LazyListState,
     onSelectMode: (FeedMode) -> Unit,
+    onSelectDisplayMode: (FeedDisplayMode) -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenPost: (String) -> Unit,
@@ -297,7 +300,9 @@ private fun CommunityContent(
             if (viewer.signedIn) {
                 FeedModeBar(
                     mode = state.mode,
+                    displayMode = state.displayMode,
                     onSelectMode = onSelectMode,
+                    onSelectDisplayMode = onSelectDisplayMode,
                 )
             }
             Box(
@@ -332,24 +337,40 @@ private fun CommunityContent(
                         itemsIndexed(
                             items = state.posts,
                             key = { _, post -> post.id },
-                            contentType = { _, post -> post.type },
+                            contentType = { _, post -> "${state.displayMode}:${post.type}" },
                         ) { index, post ->
-                            PostCard(
-                                post = post,
-                                upvoted = post.id in state.upvotedPostIds,
-                                downvoted = post.id in state.downvotedPostIds,
-                                saved = post.id in state.savedPostIds,
-                        interactionsEnabled = !viewer.signedIn ||
-                            (state.interactionsReady && post.id !in state.busyPostIds),
-                                onOpen = { onOpenPost(post.id) },
-                                onProfile = {
-                                    if (!post.isAnonymous && post.authorId.isNotBlank()) onOpenProfile(post.authorId)
-                                },
-                                onVote = { vote, doubleTap -> onVote(post.id, vote, doubleTap) },
-                                onSave = { onSave(post.id) },
-                                modifier = Modifier.animateItem(),
-                                entranceDelay = index.coerceAtMost(4) * 45L,
-                            )
+                            val interactionsEnabled = !viewer.signedIn ||
+                                (state.interactionsReady && post.id !in state.busyPostIds)
+                            val onProfileClick = {
+                                if (!post.isAnonymous && post.authorId.isNotBlank()) onOpenProfile(post.authorId)
+                            }
+                            if (state.displayMode == FeedDisplayMode.List) {
+                                PostListRow(
+                                    post = post,
+                                    upvoted = post.id in state.upvotedPostIds,
+                                    saved = post.id in state.savedPostIds,
+                                    interactionsEnabled = interactionsEnabled,
+                                    onOpen = { onOpenPost(post.id) },
+                                    onProfile = onProfileClick,
+                                    onVote = { vote, doubleTap -> onVote(post.id, vote, doubleTap) },
+                                    onSave = { onSave(post.id) },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            } else {
+                                PostCard(
+                                    post = post,
+                                    upvoted = post.id in state.upvotedPostIds,
+                                    downvoted = post.id in state.downvotedPostIds,
+                                    saved = post.id in state.savedPostIds,
+                                    interactionsEnabled = interactionsEnabled,
+                                    onOpen = { onOpenPost(post.id) },
+                                    onProfile = onProfileClick,
+                                    onVote = { vote, doubleTap -> onVote(post.id, vote, doubleTap) },
+                                    onSave = { onSave(post.id) },
+                                    modifier = Modifier.animateItem(),
+                                    entranceDelay = index.coerceAtMost(4) * 45L,
+                                )
+                            }
                         }
 
                         if (!viewer.signedIn) {
@@ -375,7 +396,9 @@ private fun CommunityContent(
 @Composable
 private fun FeedModeBar(
     mode: FeedMode,
+    displayMode: FeedDisplayMode,
     onSelectMode: (FeedMode) -> Unit,
+    onSelectDisplayMode: (FeedDisplayMode) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -403,7 +426,57 @@ private fun FeedModeBar(
                 onClick = { onSelectMode(FeedMode.Following) },
                 modifier = Modifier.weight(1f),
             )
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(NbDimens.radiusSm))
+                    .background(NbTheme.colors.surfaceBase.copy(alpha = 0.64f))
+                    .padding(horizontal = NbDimens.space2),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FeedDisplayButton(
+                    icon = NbIcons.Layout,
+                    description = "Editorial view",
+                    selected = displayMode == FeedDisplayMode.Editorial,
+                    onClick = { onSelectDisplayMode(FeedDisplayMode.Editorial) },
+                )
+                FeedDisplayButton(
+                    icon = NbIcons.List,
+                    description = "List view",
+                    selected = displayMode == FeedDisplayMode.List,
+                    onClick = { onSelectDisplayMode(FeedDisplayMode.List) },
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun FeedDisplayButton(
+    icon: ImageVector,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint by animateColorAsState(
+        if (selected) NbTheme.colors.ink else NbTheme.colors.inkMuted,
+        NbMotion.interactionTween(),
+        label = "feed_display_tint",
+    )
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(RoundedCornerShape(NbDimens.radiusSm))
+            .background(if (selected) NbTheme.colors.surfaceCard else Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Tab,
+                onClick = onClick,
+            )
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -525,6 +598,132 @@ private fun PostCard(
         }
         HorizontalDivider(color = NbTheme.colors.border, thickness = 1.dp)
     }
+}
+
+@Composable
+private fun PostListRow(
+    post: Post,
+    upvoted: Boolean,
+    saved: Boolean,
+    interactionsEnabled: Boolean,
+    onOpen: () -> Unit,
+    onProfile: () -> Unit,
+    onVote: (PostVote, Boolean) -> Boolean,
+    onSave: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val displayName = if (post.isAnonymous) post.personaName ?: "Anonymous" else post.authorName.ifBlank { "Unknown" }
+    val avatar = if (post.isAnonymous) null else post.authorProfilePicture
+    val previewImage = remember(post.id, post.imageUrl, post.imageUrls) {
+        post.imageUrls.firstOrNull() ?: post.imageUrl
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .padding(horizontal = NbDimens.space16, vertical = NbDimens.space14),
+        horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NbDimens.space8),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .then(if (post.isAnonymous) Modifier.background(NbTheme.colors.brandPink.copy(alpha = 0.12f)) else Modifier.clickable(onClick = onProfile)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (post.isAnonymous) {
+                        Text(post.personaEmoji?.takeIf(String::isNotBlank) ?: "?", color = NbTheme.colors.brandPink)
+                    } else {
+                        NbAvatar(imageUrl = avatar, name = displayName, size = 30.dp)
+                    }
+                }
+                Text(
+                    displayName,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = NbTheme.colors.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    post.createdAt?.toDate()?.time?.let(::formatRelativeTime).orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NbTheme.colors.inkMuted,
+                )
+            }
+            if (post.title.isNotBlank()) {
+                Text(
+                    post.title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = NbTheme.colors.ink,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (post.content.isNotBlank()) {
+                Text(
+                    post.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NbTheme.colors.inkMuted,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NbDimens.space2),
+            ) {
+                PostAction(
+                    icon = if (upvoted) NbIcons.HeartFilled else NbIcons.Heart,
+                    label = post.upvotesCount.toString(),
+                    description = if (upvoted) "Remove like" else "Like",
+                    selected = upvoted,
+                    selectedColor = NbTheme.colors.brandPink,
+                    enabled = interactionsEnabled,
+                    onClick = { onVote(PostVote.Up, false) },
+                    horizontalPadding = 0.dp,
+                )
+                PostAction(
+                    icon = NbIcons.Reply,
+                    label = post.repliesCount.toString(),
+                    description = "Open comments",
+                    enabled = true,
+                    onClick = onOpen,
+                    horizontalPadding = 0.dp,
+                )
+                Spacer(Modifier.weight(1f))
+                PostAction(
+                    icon = if (saved) NbIcons.BookmarkFilled else NbIcons.Bookmark,
+                    label = null,
+                    description = if (saved) "Remove from saved posts" else "Save post",
+                    selected = saved,
+                    selectedColor = NbTheme.colors.brandTeal,
+                    enabled = interactionsEnabled,
+                    onClick = onSave,
+                    horizontalPadding = 0.dp,
+                )
+            }
+        }
+        previewImage?.takeIf(String::isNotBlank)?.let { imageUrl ->
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = "Post image",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(RoundedCornerShape(NbDimens.radiusMd))
+                    .background(NbTheme.colors.surfaceSoft),
+            )
+        }
+    }
+    HorizontalDivider(color = NbTheme.colors.border)
 }
 
 @Composable

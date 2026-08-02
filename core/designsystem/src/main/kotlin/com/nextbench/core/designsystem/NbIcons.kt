@@ -474,4 +474,24 @@ object NbIcons {
             line { moveTo(21f, 10f); lineTo(16.5f, 14.5f) }
         }
     }
+
+    val List: ImageVector by lazy {
+        nbVector("List") {
+            line { moveTo(8f, 6f); lineTo(20f, 6f) }
+            line { moveTo(8f, 12f); lineTo(20f, 12f) }
+            line { moveTo(8f, 18f); lineTo(20f, 18f) }
+            solid { circle(4f, 6f, 1.1f) }
+            solid { circle(4f, 12f, 1.1f) }
+            solid { circle(4f, 18f, 1.1f) }
+        }
+    }
+
+    val Layout: ImageVector by lazy {
+        nbVector("Layout") {
+            line {
+                moveTo(4f, 5f); lineTo(20f, 5f); lineTo(20f, 19f); lineTo(4f, 19f); close()
+                moveTo(4f, 10f); lineTo(20f, 10f)
+            }
+        }
+    }
 }
