@@ -446,4 +446,32 @@ object NbIcons {
             }
         }
     }
+
+    val Trash: ImageVector by lazy {
+        nbVector("Trash") {
+            line {
+                moveTo(5f, 7f); lineTo(19f, 7f)
+                moveTo(9f, 7f); lineTo(9f, 4f); lineTo(15f, 4f); lineTo(15f, 7f)
+                moveTo(7f, 7f); lineTo(8f, 20f); lineTo(16f, 20f); lineTo(17f, 7f)
+                moveTo(10f, 11f); lineTo(10.5f, 17f)
+                moveTo(14f, 11f); lineTo(13.5f, 17f)
+            }
+        }
+    }
+
+    val Volume: ImageVector by lazy {
+        nbVector("Volume") {
+            line { moveTo(4f, 10f); lineTo(8f, 10f); lineTo(13f, 6f); lineTo(13f, 18f); lineTo(8f, 14f); lineTo(4f, 14f); close() }
+            line { moveTo(16f, 9f); curveTo(18f, 10.5f, 18f, 13.5f, 16f, 15f) }
+            line { moveTo(18.5f, 6.5f); curveTo(22f, 9.5f, 22f, 14.5f, 18.5f, 17.5f) }
+        }
+    }
+
+    val VolumeOff: ImageVector by lazy {
+        nbVector("Volume off") {
+            line { moveTo(4f, 10f); lineTo(8f, 10f); lineTo(13f, 6f); lineTo(13f, 18f); lineTo(8f, 14f); lineTo(4f, 14f); close() }
+            line { moveTo(16.5f, 10f); lineTo(21f, 14.5f) }
+            line { moveTo(21f, 10f); lineTo(16.5f, 14.5f) }
+        }
+    }
 }

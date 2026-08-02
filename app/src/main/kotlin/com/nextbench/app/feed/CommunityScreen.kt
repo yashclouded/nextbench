@@ -1,6 +1,9 @@
 package com.nextbench.app.feed
 
 import android.content.Intent
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -105,23 +108,35 @@ fun CommunityScreen(
     onVerify: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: FeedViewModel = hiltViewModel(),
+    storyViewModel: StoryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val storyState by storyViewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var accessRequest by remember { mutableStateOf<FeedAccessRequest?>(null) }
+    var storyAuthorIndex by remember { mutableStateOf<Int?>(null) }
     val viewer = remember(user?.uid, user?.verified) {
         FeedViewer(uid = user?.uid, verified = user?.verified == true)
     }
+    val storyPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let(storyViewModel::prepareMedia)
+    }
 
     LaunchedEffect(viewer) { viewModel.syncViewer(viewer) }
+    LaunchedEffect(viewer.uid) { storyViewModel.syncUser(viewer.uid) }
     LaunchedEffect(state.mode) { listState.scrollToItem(0) }
 
     CommunityContent(
         state = state,
+        storyState = storyState,
+        user = user,
         viewer = viewer,
         listState = listState,
         onSelectMode = viewModel::selectMode,
-        onRefresh = viewModel::refresh,
+        onRefresh = {
+            viewModel.refresh()
+            storyViewModel.refresh()
+        },
         onLoadMore = viewModel::loadMore,
         onOpenPost = onOpenPost,
         onOpenProfile = onOpenProfile,
@@ -148,6 +163,15 @@ fun CommunityScreen(
         },
         onRequestSignIn = { accessRequest = FeedAccessRequest.SignIn },
         onRetryInteractions = viewModel::retryInteractions,
+        onOpenStory = { index -> storyAuthorIndex = index },
+        onRetryStories = storyViewModel::refresh,
+        onAddStory = {
+            when {
+                !viewer.signedIn -> accessRequest = FeedAccessRequest.SignIn
+                !viewer.verified -> accessRequest = FeedAccessRequest.Verify
+                else -> storyPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            }
+        },
         modifier = modifier,
     )
 
@@ -173,12 +197,49 @@ fun CommunityScreen(
             },
         )
     }
+
+    if (storyState.isPreparingMedia) StoryPreparingDialog()
+
+    storyState.composerMedia?.prepared?.let { media ->
+        StoryComposer(
+            media = media,
+            privacy = storyState.privacy,
+            publishing = storyState.isPublishing,
+            onPrivacy = storyViewModel::selectPrivacy,
+            onDismiss = storyViewModel::dismissComposer,
+            onPublish = { user?.let(storyViewModel::publish) },
+        )
+    }
+
+    storyAuthorIndex?.let { index ->
+        if (user != null) {
+            StoryViewer(
+                user = user,
+                state = storyState,
+                initialAuthorIndex = index,
+                onClose = { storyAuthorIndex = null },
+                onOpenProfile = onOpenProfile,
+                onMarkSeen = storyViewModel::markSeen,
+                onRecordView = storyViewModel::recordView,
+                onLoadLiked = storyViewModel::loadLiked,
+                onToggleLike = storyViewModel::toggleLike,
+                onReply = { storyId, content -> storyViewModel.reply(user, storyId, content) },
+                onDelete = storyViewModel::delete,
+            )
+        }
+    }
+
+    storyState.interactionMessage?.let { message ->
+        StoryMessage(message = message, onDismiss = storyViewModel::dismissMessage)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun CommunityContent(
     state: FeedUiState,
+    storyState: StoryUiState,
+    user: UserData?,
     viewer: FeedViewer,
     listState: LazyListState,
     onSelectMode: (FeedMode) -> Unit,
@@ -190,6 +251,9 @@ private fun CommunityContent(
     onSave: (String) -> Unit,
     onRequestSignIn: () -> Unit,
     onRetryInteractions: () -> Unit,
+    onOpenStory: (Int) -> Unit,
+    onRetryStories: () -> Unit,
+    onAddStory: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val pullState = rememberPullToRefreshState()
@@ -221,6 +285,15 @@ private fun CommunityContent(
             .background(NbTheme.colors.surfaceBase),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            if (viewer.signedIn && user != null) {
+                StoriesTray(
+                    user = user,
+                    state = storyState,
+                    onOpen = onOpenStory,
+                    onAdd = onAddStory,
+                    onRetry = onRetryStories,
+                )
+            }
             if (viewer.signedIn) {
                 FeedModeBar(
                     mode = state.mode,
@@ -1178,6 +1251,35 @@ private fun FeedToast(
                     .padding(horizontal = NbDimens.space16, vertical = NbDimens.space12),
             )
         }
+    }
+}
+
+@Composable
+private fun StoryMessage(
+    message: String,
+    onDismiss: () -> Unit,
+) {
+    LaunchedEffect(message) {
+        delay(2_800)
+        onDismiss()
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = NbDimens.space16, vertical = NbDimens.space16),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(NbDimens.radiusMd))
+                .background(NbTheme.colors.ink)
+                .clickable(onClick = onDismiss)
+                .padding(horizontal = NbDimens.space16, vertical = NbDimens.space12),
+        )
     }
 }
 
