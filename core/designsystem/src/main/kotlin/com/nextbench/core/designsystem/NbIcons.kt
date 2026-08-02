@@ -305,6 +305,16 @@ object NbIcons {
         nbVector("Check") { line { moveTo(5f, 12.5f); lineTo(10f, 17.5f); lineTo(19f, 6.5f) } }
     }
 
+    val Forward: ImageVector by lazy {
+        nbVector("Forward") {
+            line {
+                moveTo(14f, 5f); lineTo(21f, 12f); lineTo(14f, 19f)
+                moveTo(21f, 12f); lineTo(10f, 12f)
+                arcTo(6f, 6f, 0f, isMoreThanHalf = false, isPositiveArc = false, 4f, 18f)
+            }
+        }
+    }
+
     val Moon: ImageVector by lazy {
         nbVector("Moon") {
             line {

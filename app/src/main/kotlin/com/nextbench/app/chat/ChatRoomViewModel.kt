@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.ChatBlockState
 import com.nextbench.data.firebase.ChatRepository
 import com.nextbench.data.firebase.ChatRoomDetail
+import com.nextbench.data.firebase.ForwardTarget
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
@@ -54,6 +55,14 @@ data class ChatRoomUiState(
     val voiceUploadProgress: Int = 0,
     val voicePlayback: ChatVoicePlaybackState = ChatVoicePlaybackState(),
     val actionMessage: Message? = null,
+    val selectedMessageIds: Set<String> = emptySet(),
+    val forwardSourceIds: Set<String> = emptySet(),
+    val forwardTargets: List<ForwardTarget> = emptyList(),
+    val selectedForwardTargetKeys: Set<String> = emptySet(),
+    val forwardQuery: String = "",
+    val isLoadingForwardTargets: Boolean = false,
+    val isForwarding: Boolean = false,
+    val isBulkActionRunning: Boolean = false,
     val isActingOnRequest: Boolean = false,
     val error: String? = null,
     val notice: ChatNotice? = null,
@@ -61,6 +70,13 @@ data class ChatRoomUiState(
     val pendingRequest: Boolean get() = room?.room?.status == "pending"
     val pendingRequester: String? get() = room?.room?.requestedBy
     val blocked: Boolean get() = blockState.isBlocked
+    val selectionMode: Boolean get() = selectedMessageIds.isNotEmpty()
+    val selectedMessages: List<Message> get() = messages.filter { it.id in selectedMessageIds }
+    val visibleForwardTargets: List<ForwardTarget>
+        get() {
+            val normalized = forwardQuery.trim()
+            return if (normalized.isBlank()) forwardTargets else forwardTargets.filter { it.name.contains(normalized, ignoreCase = true) }
+        }
 
     fun canRespondToRequest(viewerId: String?): Boolean =
         pendingRequest && !viewerId.isNullOrBlank() && pendingRequester != viewerId
@@ -185,6 +201,172 @@ class ChatRoomViewModel @Inject constructor(
     fun openMessageActions(message: Message) = _state.update { it.copy(actionMessage = message) }
 
     fun closeMessageActions() = _state.update { it.copy(actionMessage = null) }
+
+    fun selectActionMessage(): Boolean {
+        val message = state.value.actionMessage ?: return false
+        return selectMessage(message)
+    }
+
+    fun selectMessage(message: Message): Boolean {
+        if (message.isDeletedForEveryone || message.id.isBlank()) return false
+        val selected = state.value.selectedMessageIds
+        if (message.id !in selected && selected.size >= ChatRepository.MaxForwardMessages) {
+            showNotice("Select up to ${ChatRepository.MaxForwardMessages} messages at once.", ChatNoticeKind.Info)
+            return false
+        }
+        _state.update { current ->
+            current.copy(
+                selectedMessageIds = if (message.id in current.selectedMessageIds) {
+                    current.selectedMessageIds - message.id
+                } else {
+                    current.selectedMessageIds + message.id
+                },
+                actionMessage = null,
+            )
+        }
+        return true
+    }
+
+    fun clearMessageSelection() {
+        _state.update { it.copy(selectedMessageIds = emptySet()) }
+    }
+
+    fun openForwardingFromAction(): Boolean {
+        val message = state.value.actionMessage ?: return false
+        return openForwarding(setOf(message.id))
+    }
+
+    fun openForwardingFromSelection(): Boolean = openForwarding(state.value.selectedMessageIds)
+
+    private fun openForwarding(sourceIds: Set<String>): Boolean {
+        val validIds = state.value.messages
+            .filter { it.id in sourceIds && !it.isDeletedForEveryone }
+            .map(Message::id)
+            .toSet()
+        if (validIds.isEmpty()) return false
+        val uid = viewer?.uid ?: return false
+        _state.update {
+            it.copy(
+                actionMessage = null,
+                forwardSourceIds = validIds,
+                forwardTargets = emptyList(),
+                selectedForwardTargetKeys = emptySet(),
+                forwardQuery = "",
+                isLoadingForwardTargets = true,
+            )
+        }
+        viewModelScope.launch {
+            repository.loadForwardTargets(uid).fold(
+                onSuccess = { targets -> _state.update { it.copy(forwardTargets = targets, isLoadingForwardTargets = false) } },
+                onFailure = { error ->
+                    _state.update { it.copy(isLoadingForwardTargets = false, forwardSourceIds = emptySet()) }
+                    showNotice(error.chatMessage(), ChatNoticeKind.Error)
+                },
+            )
+        }
+        return true
+    }
+
+    fun setForwardQuery(value: String) = _state.update { it.copy(forwardQuery = value.take(80)) }
+
+    fun toggleForwardTarget(target: ForwardTarget) {
+        val key = target.forwardKey()
+        val selected = state.value.selectedForwardTargetKeys
+        if (key !in selected && selected.size >= ChatRepository.MaxForwardTargets) {
+            showNotice("Choose up to ${ChatRepository.MaxForwardTargets} conversations.", ChatNoticeKind.Info)
+            return
+        }
+        _state.update { current ->
+            current.copy(
+                selectedForwardTargetKeys = if (key in current.selectedForwardTargetKeys) {
+                    current.selectedForwardTargetKeys - key
+                } else {
+                    current.selectedForwardTargetKeys + key
+                },
+            )
+        }
+    }
+
+    fun closeForwarding() {
+        if (state.value.isForwarding) return
+        _state.update {
+            it.copy(
+                forwardSourceIds = emptySet(),
+                forwardTargets = emptyList(),
+                selectedForwardTargetKeys = emptySet(),
+                forwardQuery = "",
+                isLoadingForwardTargets = false,
+            )
+        }
+    }
+
+    fun forwardSelectedMessages(): Boolean {
+        val sender = viewer ?: return false
+        val snapshot = state.value
+        if (snapshot.isForwarding || snapshot.forwardSourceIds.isEmpty() || snapshot.selectedForwardTargetKeys.isEmpty()) return false
+        val sources = snapshot.messages.filter { it.id in snapshot.forwardSourceIds }
+        val targets = snapshot.forwardTargets.filter { it.forwardKey() in snapshot.selectedForwardTargetKeys }
+        if (sources.isEmpty() || targets.isEmpty()) return false
+        _state.update { it.copy(isForwarding = true) }
+        viewModelScope.launch {
+            repository.forwardMessages(sender, sources, targets).fold(
+                onSuccess = { result ->
+                    _state.update {
+                        it.copy(
+                            isForwarding = false,
+                            forwardSourceIds = emptySet(),
+                            forwardTargets = emptyList(),
+                            selectedForwardTargetKeys = emptySet(),
+                            forwardQuery = "",
+                            selectedMessageIds = emptySet(),
+                        )
+                    }
+                    val message = if (result.failedTargets > 0) {
+                        "Forwarded to ${result.deliveredTargets}; ${result.failedTargets} failed"
+                    } else {
+                        "Forwarded to ${result.deliveredTargets} conversation${if (result.deliveredTargets == 1) "" else "s"}"
+                    }
+                    showNotice(message, if (result.deliveredTargets > 0) ChatNoticeKind.Success else ChatNoticeKind.Error)
+                },
+                onFailure = { error ->
+                    _state.update { it.copy(isForwarding = false) }
+                    showNotice(error.chatMessage(), ChatNoticeKind.Error)
+                },
+            )
+        }
+        return true
+    }
+
+    fun deleteSelectionForMe(): Boolean = bulkDelete(everyone = false)
+
+    fun deleteSelectionForEveryone(): Boolean = bulkDelete(everyone = true)
+
+    private fun bulkDelete(everyone: Boolean): Boolean {
+        val uid = viewer?.uid ?: return false
+        val snapshot = state.value
+        val messages = snapshot.selectedMessages
+        if (messages.isEmpty() || snapshot.isBulkActionRunning) return false
+        if (everyone && messages.any { it.senderId != uid }) return false
+        _state.update { it.copy(isBulkActionRunning = true) }
+        viewModelScope.launch {
+            val result = if (everyone) {
+                repository.deleteForEveryoneBulk(roomId, messages.map(Message::id), uid)
+            } else {
+                repository.deleteForMeBulk(roomId, messages.map(Message::id), uid)
+            }
+            result.fold(
+                onSuccess = { count ->
+                    _state.update { it.copy(isBulkActionRunning = false, selectedMessageIds = emptySet()) }
+                    showNotice("Deleted $count message${if (count == 1) "" else "s"}", ChatNoticeKind.Success)
+                },
+                onFailure = { error ->
+                    _state.update { it.copy(isBulkActionRunning = false) }
+                    showNotice(error.chatMessage(), ChatNoticeKind.Error)
+                },
+            )
+        }
+        return true
+    }
 
     fun markMessageRead(messageId: String) {
         val uid = viewer?.uid ?: return
@@ -501,6 +683,8 @@ class ChatRoomViewModel @Inject constructor(
         private const val VoiceWaveformSamples = 34
     }
 }
+
+internal fun ForwardTarget.forwardKey(): String = "${type.name}:$id"
 
 internal fun Throwable.voiceRecorderMessage(): String = when (this) {
     is SecurityException -> "Microphone permission is required to send voice messages."

@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
@@ -97,6 +98,8 @@ import com.nextbench.core.designsystem.NbVerifiedBadge
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
+import com.nextbench.data.firebase.ForwardTarget
+import com.nextbench.data.firebase.ForwardTargetType
 import coil.compose.AsyncImage
 import java.time.Instant
 import java.time.ZoneId
@@ -176,6 +179,20 @@ fun ChatRoomScreen(
         }
     }
 
+    BackHandler(
+        enabled = state.forwardSourceIds.isNotEmpty() ||
+            state.actionMessage != null ||
+            showAttachmentPicker ||
+            state.selectionMode,
+    ) {
+        when {
+            state.forwardSourceIds.isNotEmpty() -> viewModel.closeForwarding()
+            state.actionMessage != null -> viewModel.closeMessageActions()
+            showAttachmentPicker -> showAttachmentPicker = false
+            state.selectionMode -> viewModel.clearMessageSelection()
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize().background(NbTheme.colors.surfaceBase)) {
         if (state.isLoading && state.room == null) {
             ChatLoadingHeader()
@@ -222,6 +239,9 @@ fun ChatRoomScreen(
                                 isViewer = message.senderId == viewerId,
                                 showSender = previous == null || previous.senderId != message.senderId || messageStartsNewDay(previous, message),
                                 onLongPress = viewModel::openMessageActions,
+                                selectionMode = state.selectionMode,
+                                selected = message.id in state.selectedMessageIds,
+                                onToggleSelection = { viewModel.selectMessage(message) },
                                 onOpenAttachment = { url -> openAttachment(context, url) },
                                 playback = state.voicePlayback,
                                 onToggleVoice = viewModel::toggleVoicePlayback,
@@ -239,7 +259,17 @@ fun ChatRoomScreen(
                 }
             }
 
-            if (state.blocked) {
+            if (state.selectionMode) {
+                MessageSelectionToolbar(
+                    selected = state.selectedMessages,
+                    viewerId = viewerId,
+                    busy = state.isBulkActionRunning,
+                    onClose = viewModel::clearMessageSelection,
+                    onForward = viewModel::openForwardingFromSelection,
+                    onDeleteForMe = viewModel::deleteSelectionForMe,
+                    onDeleteForEveryone = viewModel::deleteSelectionForEveryone,
+                )
+            } else if (state.blocked) {
                 BlockedComposer(otherName)
             } else if (state.pendingRequest) {
                 PendingRequestBar(
@@ -281,6 +311,8 @@ fun ChatRoomScreen(
             message = message,
             viewerId = viewerId,
             onReply = { viewModel.setReplyTo(message) },
+            onForward = viewModel::openForwardingFromAction,
+            onSelect = viewModel::selectActionMessage,
             onReaction = viewModel::toggleReaction,
             onDeleteForMe = viewModel::deleteForMe,
             onDeleteForEveryone = viewModel::deleteForEveryone,
@@ -298,6 +330,20 @@ fun ChatRoomScreen(
                 documentPicker.launch(arrayOf("*/*"))
             },
             onDismiss = { showAttachmentPicker = false },
+        )
+    }
+    if (state.forwardSourceIds.isNotEmpty()) {
+        ForwardMessageSheet(
+            sourceCount = state.forwardSourceIds.size,
+            targets = state.visibleForwardTargets,
+            selectedKeys = state.selectedForwardTargetKeys,
+            query = state.forwardQuery,
+            loading = state.isLoadingForwardTargets,
+            sending = state.isForwarding,
+            onQueryChange = viewModel::setForwardQuery,
+            onToggle = viewModel::toggleForwardTarget,
+            onForward = viewModel::forwardSelectedMessages,
+            onDismiss = viewModel::closeForwarding,
         )
     }
 }
@@ -494,6 +540,9 @@ private fun MessageBubble(
     isViewer: Boolean,
     showSender: Boolean,
     onLongPress: (Message) -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggleSelection: () -> Unit,
     onOpenAttachment: (String) -> Unit,
     playback: ChatVoicePlaybackState,
     onToggleVoice: (Message) -> Unit,
@@ -505,23 +554,50 @@ private fun MessageBubble(
     val shape = if (isViewer) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
     val bubbleColor = if (isViewer) NbTheme.colors.brandTeal else NbTheme.colors.surfaceCard
     val textColor = if (isViewer) Color.White else NbTheme.colors.ink
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isViewer) Arrangement.End else Arrangement.Start) {
-        Column(horizontalAlignment = if (isViewer) Alignment.End else Alignment.Start, verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
-            if (showSender && !isViewer && !message.senderName.isNullOrBlank()) {
-                Text(message.senderName.orEmpty(), style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
-            }
-            Column(
-                modifier = Modifier
-                    .widthIn(max = 300.dp)
-                    .clip(shape)
-                    .background(bubbleColor)
-                    .pointerInput(message.id) { detectTapGestures(onLongPress = { onLongPress(message) }) }
-                    .animateContentSize()
-                    .padding(horizontal = NbDimens.space14, vertical = NbDimens.space12),
-                verticalArrangement = Arrangement.spacedBy(NbDimens.space4),
-            ) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(NbDimens.radiusSm))
+                .background(if (selected) NbTheme.colors.brandTeal.copy(alpha = 0.08f) else Color.Transparent)
+                .padding(
+                    horizontal = if (selectionMode) NbDimens.space4 else 0.dp,
+                    vertical = if (selectionMode) NbDimens.space2 else 0.dp,
+                ),
+            horizontalArrangement = if (isViewer) Arrangement.End else Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (selectionMode && !isViewer) SelectionIndicator(selected)
+            Column(horizontalAlignment = if (isViewer) Alignment.End else Alignment.Start, verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                if (showSender && !isViewer && !message.senderName.isNullOrBlank()) {
+                    Text(message.senderName.orEmpty(), style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+                }
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 300.dp)
+                        .clip(shape)
+                        .background(bubbleColor)
+                        .pointerInput(message.id) {
+                            detectTapGestures(onLongPress = { onLongPress(message) })
+                        }
+                        .animateContentSize()
+                        .padding(horizontal = NbDimens.space14, vertical = NbDimens.space12),
+                    verticalArrangement = Arrangement.spacedBy(NbDimens.space4),
+                ) {
                 if (message.isDeletedForEveryone) {
                     Text("This message was deleted", style = MaterialTheme.typography.bodyMedium, color = textColor.copy(alpha = 0.75f))
+                }
+                message.forwardedFrom?.takeIf { !message.isDeletedForEveryone }?.let { source ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                        Icon(NbIcons.Forward, contentDescription = null, tint = textColor.copy(alpha = 0.72f), modifier = Modifier.size(13.dp))
+                        Text(
+                            text = "Forwarded from ${source.senderName?.takeIf(String::isNotBlank) ?: "NextBench member"}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = textColor.copy(alpha = 0.72f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 if (!message.replyToText.isNullOrBlank()) {
                     Text("Replying to ${message.replyToSenderName ?: "message"}", style = MaterialTheme.typography.labelSmall, color = if (isViewer) Color.White.copy(alpha = 0.75f) else NbTheme.colors.brandTeal)
@@ -582,8 +658,28 @@ private fun MessageBubble(
                     Text(message.createdAt?.toDate()?.time?.let(::formatRelativeTime) ?: "sending", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))
                     if (isViewer && message.readBy.isNotEmpty()) Text("Seen", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))
                 }
+                }
             }
+            if (selectionMode && isViewer) SelectionIndicator(selected)
         }
+        if (selectionMode) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(onClick = onToggleSelection)
+                    .semantics { contentDescription = if (selected) "Deselect message" else "Select message" },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SelectionIndicator(selected: Boolean) {
+    Box(
+        modifier = Modifier.padding(horizontal = NbDimens.space8).size(24.dp).clip(RoundedCornerShape(NbDimens.radiusFull)).background(if (selected) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) Icon(NbIcons.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(15.dp))
     }
 }
 
@@ -810,6 +906,110 @@ private fun VoiceRecordingControls(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageSelectionToolbar(
+    selected: List<Message>,
+    viewerId: String?,
+    busy: Boolean,
+    onClose: () -> Unit,
+    onForward: () -> Boolean,
+    onDeleteForMe: () -> Boolean,
+    onDeleteForEveryone: () -> Boolean,
+) {
+    var deleteMode by remember { mutableStateOf<MessageDeleteMode?>(null) }
+    val allOwn = selected.isNotEmpty() && selected.all { it.senderId == viewerId }
+    Surface(color = NbTheme.colors.surfaceCard, tonalElevation = 0.dp, modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
+        Row(modifier = Modifier.fillMaxWidth().height(64.dp).padding(horizontal = NbDimens.space8), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onClose, enabled = !busy) { Icon(NbIcons.Close, contentDescription = "Exit message selection", tint = NbTheme.colors.ink) }
+            Text("${selected.size} selected", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, modifier = Modifier.weight(1f))
+            IconButton(onClick = { onForward() }, enabled = selected.isNotEmpty() && !busy, modifier = Modifier.semantics { contentDescription = "Forward selected messages" }) {
+                Icon(NbIcons.Forward, contentDescription = null, tint = NbTheme.colors.brandTeal)
+            }
+            IconButton(onClick = { deleteMode = MessageDeleteMode.ForMe }, enabled = selected.isNotEmpty() && !busy, modifier = Modifier.semantics { contentDescription = "Delete selected messages" }) {
+                Icon(NbIcons.Trash, contentDescription = null, tint = NbTheme.colors.brandPink)
+            }
+        }
+    }
+    if (deleteMode != null) {
+        NbBottomSheet(onDismiss = { if (!busy) deleteMode = null }) {
+            Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+                Text("Delete ${selected.size} message${if (selected.size == 1) "" else "s"}?", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                Text("Choose whether to remove them only from your view or from the entire conversation.", style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
+                NbButton("Delete for me", { onDeleteForMe(); deleteMode = null }, enabled = !busy, loading = busy, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Secondary)
+                if (allOwn) NbButton("Delete for everyone", { onDeleteForEveryone(); deleteMode = null }, enabled = !busy, loading = busy, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Primary)
+                NbButton("Cancel", { deleteMode = null }, enabled = !busy, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Ghost)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ForwardMessageSheet(
+    sourceCount: Int,
+    targets: List<ForwardTarget>,
+    selectedKeys: Set<String>,
+    query: String,
+    loading: Boolean,
+    sending: Boolean,
+    onQueryChange: (String) -> Unit,
+    onToggle: (ForwardTarget) -> Unit,
+    onForward: () -> Boolean,
+    onDismiss: () -> Unit,
+) {
+    NbBottomSheet(onDismiss = onDismiss) {
+        Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
+                    Text("Forward to", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                    Text("$sourceCount message${if (sourceCount == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
+                }
+                IconButton(onClick = onDismiss, enabled = !sending) { Icon(NbIcons.Close, contentDescription = "Close forwarding", tint = NbTheme.colors.inkMuted) }
+            }
+            NbTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = "Search conversations",
+                singleLine = true,
+                leadingIcon = { Icon(NbIcons.Search, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(18.dp)) },
+            )
+            Box(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+                when {
+                    loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(24.dp), color = NbTheme.colors.brandTeal, strokeWidth = 2.dp)
+                    targets.isEmpty() -> NbEmptyState(icon = NbIcons.Messages, title = "No conversations", message = if (query.isBlank()) "Start a conversation or join a club first." else "No conversations match your search.", modifier = Modifier.fillMaxSize())
+                    else -> LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                        items(targets, key = { "${it.type}:${it.id}" }) { target ->
+                            val key = target.forwardKey()
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(NbDimens.radiusSm)).background(if (key in selectedKeys) NbTheme.colors.brandTeal.copy(alpha = 0.08f) else Color.Transparent).clickable(enabled = !sending) { onToggle(target) }.padding(horizontal = NbDimens.space8, vertical = NbDimens.space12),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+                            ) {
+                                SelectionIndicator(key in selectedKeys)
+                                if (target.type == ForwardTargetType.Direct) NbAvatar(imageUrl = target.avatar, name = target.name, size = 42.dp)
+                                else Box(modifier = Modifier.size(42.dp).clip(RoundedCornerShape(NbDimens.radiusMd)).background(NbTheme.colors.brandTeal.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) { Icon(NbIcons.Messages, contentDescription = null, tint = NbTheme.colors.brandTeal, modifier = Modifier.size(20.dp)) }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(target.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(if (target.type == ForwardTargetType.Direct) "Direct message" else "Club", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            NbButton(
+                text = if (selectedKeys.isEmpty()) "Choose conversations" else "Forward to ${selectedKeys.size}",
+                onClick = { onForward(); Unit },
+                enabled = selectedKeys.isNotEmpty() && !loading && !sending,
+                loading = sending,
+                modifier = Modifier.fillMaxWidth(),
+                variant = NbButtonVariant.Primary,
+            )
+        }
+    }
+}
+
 private enum class MessageDeleteMode { ForMe, ForEveryone }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -818,6 +1018,8 @@ private fun MessageActionSheet(
     message: Message,
     viewerId: String?,
     onReply: () -> Unit,
+    onForward: () -> Boolean,
+    onSelect: () -> Boolean,
     onReaction: (String) -> Boolean,
     onDeleteForMe: () -> Boolean,
     onDeleteForEveryone: () -> Boolean,
@@ -864,6 +1066,10 @@ private fun MessageActionSheet(
                     }
                 }
                 MessageActionRow(NbIcons.Reply, "Reply", onReply)
+                if (!message.isDeletedForEveryone) {
+                    MessageActionRow(NbIcons.Forward, "Forward", { onForward(); Unit })
+                    MessageActionRow(NbIcons.Check, "Select messages", { onSelect(); Unit })
+                }
                 if (!message.text.isNullOrBlank()) {
                     MessageActionRow(NbIcons.Copy, "Copy text", onClick = {
                         (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText("NextBench message", message.text))

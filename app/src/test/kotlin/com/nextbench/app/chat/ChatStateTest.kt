@@ -4,7 +4,10 @@ import com.google.firebase.Timestamp
 import com.nextbench.data.firebase.ChatBlockState
 import com.nextbench.data.firebase.ChatRoomDetail
 import com.nextbench.data.firebase.ChatRoomListItem
+import com.nextbench.data.firebase.ForwardTarget
+import com.nextbench.data.firebase.ForwardTargetType
 import com.nextbench.data.model.ChatRoom
+import com.nextbench.data.model.Message
 import com.nextbench.data.model.UserData
 import java.time.ZoneId
 import java.util.Date
@@ -138,6 +141,33 @@ class ChatStateTest {
         assertEquals("1:05", formatVoiceTime(65_000L))
         assertEquals("1x", formatPlaybackSpeed(1f))
         assertEquals("1.5x", formatPlaybackSpeed(1.5f))
+    }
+
+    @Test
+    fun `message selection derives stable messages in conversation order`() {
+        val first = Message(id = "first", senderId = "viewer")
+        val second = Message(id = "second", senderId = "other")
+        val state = ChatRoomUiState(
+            messages = listOf(first, second),
+            selectedMessageIds = setOf("second", "missing", "first"),
+        )
+
+        assertTrue(state.selectionMode)
+        assertEquals(listOf("first", "second"), state.selectedMessages.map(Message::id))
+    }
+
+    @Test
+    fun `forward target search ignores case and forward keys include target type`() {
+        val direct = ForwardTarget("same-id", ForwardTargetType.Direct, "Maya Singh")
+        val club = ForwardTarget("same-id", ForwardTargetType.Club, "Physics Society")
+        val state = ChatRoomUiState(
+            forwardTargets = listOf(direct, club),
+            forwardQuery = "PHYSICS",
+        )
+
+        assertEquals(listOf(club), state.visibleForwardTargets)
+        assertEquals("Direct:same-id", direct.forwardKey())
+        assertEquals("Club:same-id", club.forwardKey())
     }
 
     private fun roomItem(
