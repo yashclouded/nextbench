@@ -12,6 +12,7 @@ import com.nextbench.data.model.ChatRoom
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.ClubSettings
 import com.nextbench.data.model.FileAttachment
+import com.nextbench.data.model.ForwardedFrom
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.MessageType
@@ -59,6 +60,20 @@ data class ChatBlockState(
 ) {
     val isBlocked: Boolean get() = blockedByViewer || blockedViewer
 }
+
+enum class ForwardTargetType { Direct, Club }
+
+data class ForwardTarget(
+    val id: String,
+    val type: ForwardTargetType,
+    val name: String,
+    val avatar: String? = null,
+)
+
+data class ForwardResult(
+    val deliveredTargets: Int,
+    val failedTargets: Int,
+)
 
 /**
  * Shared Firestore boundary for direct conversations. The field names and write order mirror
@@ -163,6 +178,90 @@ class ChatRepository @Inject constructor(
                 blockedViewer = second.exists(),
             )
         }
+    }
+
+    suspend fun loadForwardTargets(uid: String): Result<List<ForwardTarget>> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        coroutineScope {
+            val rooms = async {
+                refs.chatRooms.whereArrayContains("participants", uid).get().await().documents.mapNotNull { snapshot ->
+                    val room = snapshot.toChatRoom() ?: return@mapNotNull null
+                    val otherId = room.participants.firstOrNull { it != uid } ?: return@mapNotNull null
+                    val user = runCatching { loadUser(otherId) }.getOrNull()
+                    ForwardTarget(
+                        id = room.id,
+                        type = ForwardTargetType.Direct,
+                        name = user?.name?.ifBlank { null } ?: "NextBench member",
+                        avatar = user?.profilePicture,
+                    )
+                }
+            }
+            val clubs = async {
+                refs.clubs.whereArrayContains("memberIds", uid).get().await().documents.mapNotNull { snapshot ->
+                    val club = snapshot.toClub() ?: return@mapNotNull null
+                    ForwardTarget(
+                        id = club.id,
+                        type = ForwardTargetType.Club,
+                        name = club.name.ifBlank { "Campus club" },
+                        avatar = club.avatar,
+                    )
+                }
+            }
+            (rooms.await() + clubs.await()).sortedWith(compareBy<ForwardTarget> { it.type }.thenBy { it.name.lowercase() })
+        }
+    }
+
+    suspend fun forwardMessages(
+        sender: UserData,
+        messages: List<Message>,
+        targets: List<ForwardTarget>,
+    ): Result<ForwardResult> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(sender.uid)
+        require(messages.isNotEmpty()) { "Select at least one message to forward." }
+        require(messages.size <= MaxForwardMessages) { "You can forward up to $MaxForwardMessages messages at once." }
+        require(targets.isNotEmpty()) { "Choose at least one conversation." }
+        require(targets.size <= MaxForwardTargets) { "You can forward to up to $MaxForwardTargets conversations at once." }
+
+        var deliveredTargets = 0
+        var failedTargets = 0
+        targets.distinctBy { it.type to it.id }.forEach { target ->
+            val delivered = runCatching { forwardToTarget(sender, messages, target) }.getOrDefault(false)
+            if (delivered) deliveredTargets++ else failedTargets++
+        }
+        ForwardResult(deliveredTargets, failedTargets)
+    }
+
+    suspend fun deleteForMeBulk(roomId: String, messageIds: List<String>, uid: String): Result<Int> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(isRoomParticipant(roomId, uid)) { "You are not a member of this conversation." }
+        val ids = normalizedMessageIds(messageIds)
+        ids.chunked(FirestoreWriteBatchLimit).forEach { chunk ->
+            val batch = refs.chatRooms.firestore.batch()
+            chunk.forEach { id -> batch.update(refs.messages(roomId).document(id), "deletedFor", FieldValue.arrayUnion(uid)) }
+            batch.commit().await()
+        }
+        ids.size
+    }
+
+    suspend fun deleteForEveryoneBulk(roomId: String, messageIds: List<String>, uid: String): Result<Int> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(isRoomParticipant(roomId, uid)) { "You are not a member of this conversation." }
+        val ids = normalizedMessageIds(messageIds)
+        val messages = ids.map { id ->
+            refs.messages(roomId).document(id).get().await().toMessage()
+                ?: throw FirebaseFirestoreException("A selected message is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
+        }
+        require(messages.all { it.senderId == uid }) { "You can only delete your own messages for everyone." }
+        ids.chunked(FirestoreWriteBatchLimit).forEach { chunk ->
+            val batch = refs.chatRooms.firestore.batch()
+            chunk.forEach { id -> batch.update(refs.messages(roomId).document(id), deletedForEveryonePayload()) }
+            batch.commit().await()
+        }
+        ids.size
     }
 
     suspend fun sendText(
@@ -350,16 +449,7 @@ class ChatRepository @Inject constructor(
         val message = ref.get().await().toMessage()
             ?: throw FirebaseFirestoreException("This message is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
         require(message.senderId == uid) { "Only the sender can delete this message for everyone." }
-        ref.update(
-            mapOf(
-                "isDeletedForEveryone" to true,
-                "text" to "This message was deleted",
-                "image" to FieldValue.delete(),
-                "video" to FieldValue.delete(),
-                "file" to FieldValue.delete(),
-                "audioUrl" to FieldValue.delete(),
-            ),
-        ).await()
+        ref.update(deletedForEveryonePayload()).await()
     }
 
     suspend fun markMessageRead(roomId: String, messageId: String, uid: String): Result<Unit> = runCatching {
@@ -513,6 +603,52 @@ class ChatRepository @Inject constructor(
                 refs.blocks.document("${otherId}_${viewerId}").get().await().exists()
         }
 
+    private suspend fun forwardToTarget(sender: UserData, messages: List<Message>, target: ForwardTarget): Boolean {
+        val roomRef = when (target.type) {
+            ForwardTargetType.Direct -> refs.chatRoom(target.id)
+            ForwardTargetType.Club -> refs.club(target.id)
+        }
+        val snapshot = roomRef.get().await()
+        if (!snapshot.exists()) return false
+        val recipientIds = when (target.type) {
+            ForwardTargetType.Direct -> {
+                val room = snapshot.toChatRoom() ?: return false
+                if (sender.uid !in room.participants || room.status == "pending") return false
+                if (hasBlockRelationship(sender.uid, room.participants.filter { it != sender.uid })) return false
+                room.participants.filter { it != sender.uid }
+            }
+            ForwardTargetType.Club -> {
+                val club = snapshot.toClub() ?: return false
+                val canPost = sender.uid in club.memberIds && (!club.settings.onlyLeadsCanPost || sender.uid == club.leadId || sender.uid in club.coLeadIds)
+                if (!canPost) return false
+                club.memberIds.filter { it != sender.uid }
+            }
+        }
+        val messageCollection = when (target.type) {
+            ForwardTargetType.Direct -> refs.messages(target.id)
+            ForwardTargetType.Club -> refs.clubMessages(target.id)
+        }
+        var lastPreview = "Forwarded message"
+        var delivered = 0
+        messages.forEach { source ->
+            runCatching {
+                val messageRef = messageCollection.document()
+                messageRef.set(forwardedMessagePayload(sender, source, messageRef.id)).await()
+                lastPreview = source.forwardPreview()
+                delivered++
+            }
+        }
+        if (delivered == 0) return false
+        runCatching {
+            val metadata = when (target.type) {
+                ForwardTargetType.Direct -> roomMetadataPayload(sender.uid, lastPreview, recipientIds, "forwarded")
+                ForwardTargetType.Club -> clubMessageMetadataPayload(sender, lastPreview, recipientIds)
+            }
+            roomRef.update(metadata).await()
+        }
+        return true
+    }
+
     private fun requireAuthenticated(uid: String) {
         require(auth.currentUser?.uid == uid) { "Your session expired. Sign in and try again." }
     }
@@ -589,6 +725,9 @@ class ChatRepository @Inject constructor(
     companion object {
         const val MessageCharacterLimit = 2_000
         const val MessageWindowSize = 100L
+        const val MaxForwardMessages = 20
+        const val MaxForwardTargets = 10
+        private const val FirestoreWriteBatchLimit = 450
     }
 }
 
@@ -778,6 +917,69 @@ internal fun voiceMessageValidationError(durationSeconds: Long, fileSize: Long, 
     else -> null
 }
 
+internal fun forwardedMessagePayload(
+    sender: UserData,
+    source: Message,
+    messageId: String,
+): Map<String, Any?> = buildMap {
+    require(!source.isDeletedForEveryone) { "Deleted messages cannot be forwarded." }
+    put("senderId", sender.uid)
+    put("senderName", sender.name.ifBlank { "Student" })
+    put("senderAvatar", sender.profilePicture)
+    put("type", MessageType.from(source.type).raw)
+    put("createdAt", FieldValue.serverTimestamp())
+    put("clientMessageId", "android_$messageId")
+    put("status", MessageStatus.Sent.raw)
+    val original = source.forwardedFrom ?: ForwardedFrom(source.senderId, source.senderName)
+    put("forwardedFrom", mapOf("senderId" to original.senderId, "senderName" to original.senderName))
+    source.text?.takeIf(String::isNotBlank)?.let { put("text", it) }
+    source.image?.takeIf(String::isNotBlank)?.let { put("image", mapOf("url" to it)) }
+    source.video?.let { put("video", mapOf("url" to it.url, "poster" to it.poster, "w" to it.w, "h" to it.h, "duration" to it.duration)) }
+    source.file?.let { file ->
+        put("file", buildMap<String, Any> {
+            put("url", file.url)
+            put("name", file.name)
+            put("size", file.size)
+            put("mime", file.mime)
+            file.pages?.let { put("pages", it) }
+        })
+    }
+    source.audioUrl?.takeIf(String::isNotBlank)?.let {
+        put("audioUrl", it)
+        source.duration?.let { duration -> put("duration", duration) }
+        source.fileSize?.let { size -> put("fileSize", size) }
+        source.mimeType?.let { mime -> put("mimeType", mime) }
+    }
+    require(keys.any { it in ForwardableContentKeys }) { "This message cannot be forwarded." }
+}
+
+internal fun deletedForEveryonePayload(): Map<String, Any?> = mapOf(
+    "isDeletedForEveryone" to true,
+    "text" to "This message was deleted",
+    "image" to FieldValue.delete(),
+    "video" to FieldValue.delete(),
+    "file" to FieldValue.delete(),
+    "audioUrl" to FieldValue.delete(),
+    "duration" to FieldValue.delete(),
+    "fileSize" to FieldValue.delete(),
+    "mimeType" to FieldValue.delete(),
+)
+
+private fun normalizedMessageIds(ids: List<String>): List<String> {
+    val normalized = ids.map(String::trim).filter(String::isNotBlank).distinct()
+    require(normalized.isNotEmpty()) { "Select at least one message." }
+    require(normalized.size <= ChatRepository.MaxForwardMessages) { "Select up to ${ChatRepository.MaxForwardMessages} messages at once." }
+    return normalized
+}
+
+private fun Message.forwardPreview(): String = when (MessageType.from(type)) {
+    MessageType.Image -> "Photo"
+    MessageType.Video -> "Video"
+    MessageType.File -> file?.name?.takeIf(String::isNotBlank) ?: "File"
+    MessageType.Voice -> "Voice message"
+    MessageType.Text -> text?.take(120)?.takeIf(String::isNotBlank) ?: "Forwarded message"
+}
+
 private fun attachmentMessagePayload(
     sender: UserData,
     messageId: String,
@@ -876,10 +1078,13 @@ private fun Map<String, Any?>.chatReactions(key: String): Map<String, List<Strin
         (value as? List<*>)?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }.orEmpty()
     }
 
-private fun Map<String, Any?>.chatForwardedFrom(key: String): String? = when (val value = get(key)) {
-    is String -> value.takeIf(String::isNotBlank)
-    is Map<*, *> -> value.entries
-        .firstOrNull { it.key?.toString() == "senderName" }
-        ?.value?.toString()?.takeIf(String::isNotBlank)
+private fun Map<String, Any?>.chatForwardedFrom(key: String): ForwardedFrom? = when (val value = get(key)) {
+    is String -> value.takeIf(String::isNotBlank)?.let { ForwardedFrom(senderName = it) }
+    is Map<*, *> -> ForwardedFrom(
+        senderId = value.entries.firstOrNull { it.key?.toString() == "senderId" }?.value?.toString().orEmpty(),
+        senderName = value.entries.firstOrNull { it.key?.toString() == "senderName" }?.value?.toString()?.takeIf(String::isNotBlank),
+    ).takeIf { it.senderId.isNotBlank() || !it.senderName.isNullOrBlank() }
     else -> null
 }
+
+private val ForwardableContentKeys = setOf("text", "image", "video", "file", "audioUrl")

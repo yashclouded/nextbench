@@ -5,6 +5,7 @@ import com.nextbench.data.model.ClubType
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
+import com.nextbench.data.model.VideoAttachment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -135,6 +136,55 @@ class ChatRepositoryContractTest {
         assertEquals(17L, message.duration)
         assertEquals(128_000L, message.fileSize)
         assertEquals("audio/mp4", message.mimeType)
+    }
+
+    @Test
+    fun `forwarded payload preserves original author and rich content`() {
+        val source = Message(
+            id = "source",
+            senderId = "original-author",
+            senderName = "Noah",
+            text = "Watch this",
+            type = MessageType.Video.raw,
+            video = VideoAttachment(url = "https://cdn/video.mp4", poster = "https://cdn/poster.jpg", w = 720, h = 1280, duration = 8_000L),
+        )
+        val payload = forwardedMessagePayload(
+            sender = UserData(uid = "forwarder", name = "Maya"),
+            source = source,
+            messageId = "forwarded",
+        )
+
+        assertEquals("forwarder", payload["senderId"])
+        assertEquals("video", payload["type"])
+        assertEquals("Watch this", payload["text"])
+        assertEquals("https://cdn/video.mp4", (payload["video"] as Map<*, *>)["url"])
+        assertEquals("original-author", (payload["forwardedFrom"] as Map<*, *>)["senderId"])
+        assertEquals("Noah", (payload["forwardedFrom"] as Map<*, *>)["senderName"])
+    }
+
+    @Test
+    fun `forwarded messages retain structured attribution when read`() {
+        val message = mapOf<String, Any?>(
+            "senderId" to "forwarder",
+            "text" to "Useful note",
+            "forwardedFrom" to mapOf("senderId" to "author", "senderName" to "Noah"),
+        ).toChatMessage("forwarded")
+
+        assertEquals("author", message?.forwardedFrom?.senderId)
+        assertEquals("Noah", message?.forwardedFrom?.senderName)
+    }
+
+    @Test
+    fun `bulk delete payload removes all attachment metadata`() {
+        val payload = deletedForEveryonePayload()
+
+        assertEquals(true, payload["isDeletedForEveryone"])
+        assertEquals("This message was deleted", payload["text"])
+        assertTrue(payload.containsKey("image"))
+        assertTrue(payload.containsKey("video"))
+        assertTrue(payload.containsKey("file"))
+        assertTrue(payload.containsKey("audioUrl"))
+        assertTrue(payload.containsKey("mimeType"))
     }
 
     @Test

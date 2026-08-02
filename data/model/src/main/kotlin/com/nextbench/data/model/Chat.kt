@@ -99,7 +99,7 @@ data class Message(
     val readBy: List<String> = emptyList(),
     val clientMessageId: String? = null,
     val status: String = MessageStatus.Sent.raw,
-    val forwardedFrom: String? = null,
+    val forwardedFrom: ForwardedFrom? = null,
 )
 
 data class VideoAttachment(
@@ -116,4 +116,9 @@ data class FileAttachment(
     val size: Long = 0,
     val mime: String = "",
     val pages: Int? = null,
+)
+
+data class ForwardedFrom(
+    val senderId: String = "",
+    val senderName: String? = null,
 )
