@@ -25,3 +25,6 @@ keystore.properties
 
 # Kotlin
 .kotlin/
+
+# IDE compile output
+bin/
