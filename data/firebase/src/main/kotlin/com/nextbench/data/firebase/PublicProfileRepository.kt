@@ -1,6 +1,7 @@
 package com.nextbench.data.firebase
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldPath
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
@@ -8,7 +9,6 @@ import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 
@@ -43,7 +43,7 @@ class PublicProfileRepository @Inject constructor(
         requireNotNull(auth.currentUser?.uid) { "Sign in to view profiles." }
         require(userId.isNotBlank()) { "Missing profile id." }
         val content = functions.getPublicProfileContent(userId).toPublicProfileContent()
-        content.copy(stats = loadStats(userId, auth.currentUser?.uid.orEmpty()))
+        if (content.user == null) content else content.copy(stats = loadStats(userId, auth.currentUser?.uid.orEmpty()))
     }
 
     suspend fun resolveUsername(username: String): Result<String?> = runCatching {
@@ -67,8 +67,10 @@ class PublicProfileRepository @Inject constructor(
     }
 
     private suspend fun loadStats(targetId: String, viewerId: String): PublicProfileStats = coroutineScope {
-        val followersSnap = refs.follows.whereEqualTo("followingId", targetId).get().await()
-        val followingSnap = refs.follows.whereEqualTo("followerId", targetId).get().await()
+        val followersDeferred = async { refs.follows.whereEqualTo("followingId", targetId).get().await() }
+        val followingDeferred = async { refs.follows.whereEqualTo("followerId", targetId).get().await() }
+        val followersSnap = followersDeferred.await()
+        val followingSnap = followingDeferred.await()
         val followerIds = followersSnap.documents.mapNotNull { it.getString("followerId") }.distinct()
         val followingIds = followingSnap.documents.mapNotNull { it.getString("followingId") }.distinct()
         val viewerFollowing = async { refs.follows.whereEqualTo("followerId", viewerId).get().await() }
@@ -77,7 +79,12 @@ class PublicProfileRepository @Inject constructor(
         val targetNetwork = (followerIds + followingIds).toSet()
         val mutualIds = targetNetwork.intersect(viewerNetwork).filter { it != viewerId }.toList()
         val displayIds = (followerIds.take(MaxListUsers) + followingIds.take(MaxListUsers) + mutualIds.take(MaxMutualUsers)).distinct()
-        val users = displayIds.map { id -> async { id to refs.user(id).get().await().toObject(UserData::class.java)?.copy(uid = id) } }.awaitAll().toMap()
+        val users = displayIds.chunked(MaxUserBatch).map { ids ->
+            async {
+                refs.users.whereIn(FieldPath.documentId(), ids).get().await().documents
+                    .mapNotNull { snapshot -> snapshot.toObject(UserData::class.java)?.copy(uid = snapshot.id) }
+            }
+        }.flatMap { it.await() }.associateBy(UserData::uid)
         PublicProfileStats(
             followersCount = followerIds.size,
             followingCount = followingIds.size,
@@ -97,6 +104,7 @@ class PublicProfileRepository @Inject constructor(
     companion object {
         private const val MaxListUsers = 50
         private const val MaxMutualUsers = 3
+        private const val MaxUserBatch = 30
     }
 }
 

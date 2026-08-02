@@ -1,5 +1,10 @@
 package com.nextbench.app.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -56,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nextbench.core.common.formatRelativeTime
@@ -412,6 +418,7 @@ private fun MessageActionSheet(
     onDeleteForEveryone: () -> Boolean,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Message actions") },
@@ -423,6 +430,25 @@ private fun MessageActionSheet(
                     }
                 }
                 OutlinedButton(onClick = onReply, modifier = Modifier.fillMaxWidth()) { Icon(NbIcons.Reply, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Reply") }
+                if (!message.text.isNullOrBlank()) {
+                    OutlinedButton(
+                        onClick = {
+                            (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText("NextBench message", message.text))
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Icon(NbIcons.Copy, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Copy text") }
+                }
+                val attachmentUrl = message.image ?: message.video?.url ?: message.file?.url
+                if (!attachmentUrl.isNullOrBlank()) {
+                    OutlinedButton(
+                        onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(attachmentUrl)))
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Icon(NbIcons.ArrowRight, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Open attachment") }
+                }
                 if (!message.text.isNullOrBlank()) Text(message.text.orEmpty(), style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Text("Read by ${message.readBy.size} people", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
                 OutlinedButton(onClick = { onDeleteForMe(); onDismiss() }, modifier = Modifier.fillMaxWidth()) { Icon(NbIcons.Trash, contentDescription = null); Spacer(Modifier.width(8.dp)); Text("Delete for me") }
