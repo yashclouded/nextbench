@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.nextbench.app.navigation.NbRoute
@@ -1144,6 +1145,10 @@ private fun OtpMode.routePath(): String = when (this) {
 internal fun authExitFallback(poppedCaller: Boolean): String? =
     NbRoute.Feed.path.takeUnless { poppedCaller }
 
-private fun Exception.authMessage(): String = message
-    ?.takeIf(String::isNotBlank)
-    ?: "Google sign-in could not start. Please try again."
+internal fun Exception.authMessage(): String = when (this) {
+    is NoCredentialException ->
+        "No Google account is available on this device. Add one in Android Settings and try again."
+    else -> message
+        ?.takeIf(String::isNotBlank)
+        ?: "Google sign-in could not start. Please try again."
+}
