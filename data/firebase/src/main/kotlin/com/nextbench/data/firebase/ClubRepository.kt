@@ -38,6 +38,7 @@ class ClubRepository @Inject constructor(
     fun observePublicClubs(uid: String, school: String?, city: String?): Flow<List<Club>> = configuredFlow(uid) {
         refs.clubs
             .whereEqualTo("type", "public")
+            .limit(PublicClubQueryLimit)
             .snapshotFlow()
             .map { snapshot ->
                 snapshot.documents
@@ -186,6 +187,7 @@ class ClubRepository @Inject constructor(
 
     companion object {
         internal const val PublicClubLimit = 20
+        internal const val PublicClubQueryLimit = 50L
         internal const val ClubMessageWindowSize = 100L
     }
 }
