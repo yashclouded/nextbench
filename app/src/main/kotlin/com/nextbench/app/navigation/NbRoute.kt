@@ -17,6 +17,7 @@ sealed class NbRoute(val path: String) {
     data object Create : NbRoute("create")
     data object Messages : NbRoute("messages")
     data object Profile : NbRoute("profile")
+    data object Clubs : NbRoute("clubs")
 
     data object Search : NbRoute("search")
     data object Notifications : NbRoute("notifications")
@@ -77,7 +78,7 @@ sealed class NbRoute(val path: String) {
         fun chat(roomId: String) = "chat/${roomId.encodeRouteSegment()}"
         fun messages(roomId: String) = "messages/${roomId.encodeRouteSegment()}"
         fun clubMessages(clubId: String) = "messages/club/${clubId.encodeRouteSegment()}"
-        fun club(clubId: String) = "club/${clubId.encodeRouteSegment()}"
+    fun club(clubId: String) = "club/${clubId.encodeRouteSegment()}"
         fun clubSettings(clubId: String) = "club/${clubId.encodeRouteSegment()}/settings"
         fun clubJoin(inviteCode: String) = "club/join/${inviteCode.encodeRouteSegment()}"
 

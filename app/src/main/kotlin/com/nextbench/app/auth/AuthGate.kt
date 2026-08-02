@@ -26,7 +26,7 @@ internal sealed interface GateSession {
 
 fun requirementForRoute(path: String?): RouteRequirement = when {
     path == null -> RouteRequirement.Public
-    path == NbRoute.Profile.path || path == NbRoute.Wishlist.path || path == NbRoute.Notifications.path ||
+    path == NbRoute.Profile.path || path == NbRoute.Wishlist.path || path == NbRoute.Notifications.path || path == NbRoute.Clubs.path ||
         path == NbRoute.Invite.path || path == NbRoute.Verification.path || path.startsWith("product/") ||
         path.startsWith("profile/") || path.startsWith("u/") || path.startsWith("club/") -> RouteRequirement.SignedIn
     path == NbRoute.Create.path || path == NbRoute.Sell.path || path == NbRoute.Messages.path ||

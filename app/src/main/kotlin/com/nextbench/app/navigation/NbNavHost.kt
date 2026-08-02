@@ -36,6 +36,9 @@ import com.nextbench.app.marketplace.ProductComposerScreen
 import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.notifications.NotificationsScreen
 import com.nextbench.app.invite.InviteScreen
+import com.nextbench.app.clubs.ClubChatScreen
+import com.nextbench.app.clubs.ClubJoinScreen
+import com.nextbench.app.clubs.ClubsScreen
 import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.app.profile.ProfileScreen
 import com.nextbench.app.profile.PublicProfileScreen
@@ -171,6 +174,16 @@ fun NbNavHost(
                     onOpenRoom = { roomId ->
                         navController.navigate(NbRoute.messages(roomId)) { launchSingleTop = true }
                     },
+                    onOpenClubs = { navController.navigate(NbRoute.Clubs.path) { launchSingleTop = true } },
+                )
+            }
+        }
+
+        composable(NbRoute.Clubs.path) {
+            GuardedDestination(navController, NbRoute.Clubs.path, authViewModel) {
+                ClubsScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    onOpenClub = { clubId -> navController.navigate(NbRoute.club(clubId)) { launchSingleTop = true } },
                 )
             }
         }
@@ -389,10 +402,36 @@ fun NbNavHost(
                 )
             }
         }
-        composable(NbRoute.MessagesClub.path) { GuardedDestination(navController, NbRoute.MessagesClub.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club conversation", "Your club conversation will appear here.") } }
-        composable(NbRoute.Club.path) { GuardedDestination(navController, NbRoute.Club.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club", "A focused space for your campus group is coming together here.") } }
+        composable(
+            route = NbRoute.MessagesClub.path,
+            arguments = listOf(navArgument("clubId") { type = NavType.StringType }),
+        ) { GuardedDestination(navController, NbRoute.MessagesClub.path, authViewModel) {
+            ClubChatScreen(user = (session as? SessionState.SignedIn)?.userData, onLeave = { navController.popBackStack() })
+        } }
+        composable(
+            route = NbRoute.Club.path,
+            arguments = listOf(navArgument("clubId") { type = NavType.StringType }),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/club/{clubId}" },
+                navDeepLink { uriPattern = "nextbench://club/{clubId}" },
+            ),
+        ) { GuardedDestination(navController, NbRoute.Club.path, authViewModel) {
+            ClubChatScreen(user = (session as? SessionState.SignedIn)?.userData, onLeave = { navController.popBackStack() })
+        } }
         composable(NbRoute.ClubSettings.path) { GuardedDestination(navController, NbRoute.ClubSettings.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Club settings", "Manage members, permissions, and notifications for your club.") } }
-        composable(NbRoute.ClubJoin.path) { GuardedDestination(navController, NbRoute.ClubJoin.path, authViewModel) { PlaceholderScreen(NbIcons.Messages, "Join a club", "Enter an invite and find your people on campus.") } }
+        composable(
+            route = NbRoute.ClubJoin.path,
+            arguments = listOf(navArgument("inviteCode") { type = NavType.StringType }),
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/club/join/{inviteCode}" },
+                navDeepLink { uriPattern = "nextbench://club/join/{inviteCode}" },
+            ),
+        ) { GuardedDestination(navController, NbRoute.ClubJoin.path, authViewModel) {
+            ClubJoinScreen(
+                user = (session as? SessionState.SignedIn)?.userData,
+                onOpenClub = { clubId -> navController.navigate(NbRoute.club(clubId)) { popUpTo(NbRoute.ClubJoin.path) { inclusive = true } } },
+            )
+        } }
         composable(NbRoute.Invite.path) {
             GuardedDestination(navController, NbRoute.Invite.path, authViewModel) {
                 InviteScreen(user = (session as? SessionState.SignedIn)?.userData)

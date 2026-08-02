@@ -130,6 +130,7 @@ internal fun Throwable.clubMessage(): String {
         raw.contains("not configured", ignoreCase = true) -> "Firebase is not configured for this build. Add google-services.json to load clubs."
         raw.contains("network", ignoreCase = true) || raw.contains("UNAVAILABLE", ignoreCase = true) -> "No internet connection. Check your network and try again."
         raw.contains("session expired", ignoreCase = true) || raw.contains("UNAUTHENTICATED", ignoreCase = true) -> "Your session expired. Sign in and try again."
+        raw.contains("PERMISSION_DENIED", ignoreCase = true) || raw.contains("permission", ignoreCase = true) -> "Verify your student account before joining or posting in clubs."
         raw.isNotBlank() -> raw
         else -> "Unable to update clubs. Please try again."
     }

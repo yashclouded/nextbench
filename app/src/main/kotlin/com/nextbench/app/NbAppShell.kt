@@ -122,6 +122,7 @@ private fun NbTopBar(
         path == ProductDetailPreviewRoute -> "Listing"
         path == NbRoute.Create.path -> "Create"
         path == NbRoute.Messages.path -> "Messages"
+        path == NbRoute.Clubs.path -> "Clubs"
         path == NbRoute.Profile.path -> "Your space"
         path == NbRoute.Search.path -> "Search"
         path == NbRoute.Notifications.path -> "Notifications"

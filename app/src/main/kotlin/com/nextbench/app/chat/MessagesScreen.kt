@@ -64,6 +64,7 @@ import com.nextbench.data.model.UserData
 fun MessagesScreen(
     user: UserData?,
     onOpenRoom: (String) -> Unit,
+    onOpenClubs: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MessagesViewModel = hiltViewModel(),
 ) {
@@ -97,6 +98,9 @@ fun MessagesScreen(
                     count = state.archivedCount,
                     onClick = viewModel::toggleArchived,
                 )
+                IconButton(onClick = onOpenClubs, modifier = Modifier.semantics { contentDescription = "Open clubs" }) {
+                    Icon(NbIcons.Messages, contentDescription = null, tint = NbTheme.colors.brandTeal)
+                }
             }
             NbTextField(
                 value = state.query,
