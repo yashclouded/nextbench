@@ -1,5 +1,8 @@
 package com.nextbench.app.profile
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -22,14 +25,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,9 +67,14 @@ import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbEmptyState
 import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbMotion
+import com.nextbench.core.designsystem.NbOutlinedButton
 import com.nextbench.core.designsystem.NbPill
 import com.nextbench.core.designsystem.NbSkeletonBox
 import com.nextbench.core.designsystem.NbSkeletonLine
+import com.nextbench.core.designsystem.NbTextField
+import com.nextbench.core.designsystem.NbToast
+import com.nextbench.core.designsystem.NbToastKind
+import com.nextbench.core.designsystem.NbToastState
 import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.NbVerifiedBadge
 import com.nextbench.core.designsystem.NbVerifiedPill
@@ -72,6 +85,7 @@ import com.nextbench.data.model.ProductStatus
 import com.nextbench.data.model.UserData
 import com.nextbench.data.model.VerificationStatus
 import com.nextbench.core.designsystem.NbBottomSheet
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,27 +107,49 @@ fun ProfileScreen(
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val profilePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let(viewModel::prepareProfilePicture)
+    }
     var showSignOutSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
     LaunchedEffect(signOutError) {
         if (signOutError != null) showSignOutSheet = false
     }
+    LaunchedEffect(state.editor.open, state.editor.username) {
+        if (!state.editor.open) return@LaunchedEffect
+        delay(420)
+        viewModel.checkUsername()
+    }
 
-    ProfileContent(
-        state = state,
-        onSelectTab = viewModel::selectTab,
-        onRefresh = viewModel::retry,
-        onOpenListing = onOpenListing,
-        onOpenPost = onOpenPost,
-        onOpenSaved = onOpenSaved,
-        onOpenMessages = onOpenMessages,
-        onOpenInvite = onOpenInvite,
-        onOpenVerification = onOpenVerification,
-        onOpenSettings = { showSettingsSheet = true },
-        onSignOut = { showSignOutSheet = true },
-        modifier = modifier,
-    )
+    Box(modifier = modifier.fillMaxSize()) {
+        ProfileContent(
+            state = state,
+            onSelectTab = viewModel::selectTab,
+            onRefresh = viewModel::retry,
+            onOpenListing = onOpenListing,
+            onOpenPost = onOpenPost,
+            onOpenSaved = onOpenSaved,
+            onOpenMessages = onOpenMessages,
+            onOpenInvite = onOpenInvite,
+            onOpenVerification = onOpenVerification,
+            onOpenSettings = { showSettingsSheet = true },
+            onEditProfile = viewModel::openEditor,
+            onSignOut = { showSignOutSheet = true },
+            modifier = Modifier.fillMaxSize(),
+        )
+        state.notice?.let { notice ->
+            NbToast(
+                state = NbToastState(
+                    message = notice.message,
+                    kind = if (notice.kind == ProfileNoticeKind.Success) NbToastKind.Success else NbToastKind.Error,
+                    visible = true,
+                ),
+                onDismiss = { viewModel.dismissNotice(notice.id) },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+    }
 
     if (showSignOutSheet) {
         NbBottomSheet(onDismiss = { if (!signOutLoading) showSignOutSheet = false }) {
@@ -150,7 +186,27 @@ fun ProfileScreen(
                 onOpenSaved = { showSettingsSheet = false; onOpenSaved() },
                 onOpenInvite = { showSettingsSheet = false; onOpenInvite() },
                 onOpenNotifications = { showSettingsSheet = false; onOpenNotifications() },
+                onEditProfile = { showSettingsSheet = false; viewModel.openEditor() },
                 onSignOut = { showSettingsSheet = false; showSignOutSheet = true },
+            )
+        }
+    }
+
+    if (state.editor.open && state.user != null) {
+        NbBottomSheet(onDismiss = viewModel::closeEditor) {
+            ProfileEditorSheet(
+                profile = state.user!!,
+                state = state.editor,
+                onDismiss = viewModel::closeEditor,
+                onPickProfilePicture = {
+                    profilePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                onRemoveProfilePicture = viewModel::removeProfilePicture,
+                onNameChange = viewModel::setEditorName,
+                onAboutChange = viewModel::setEditorAbout,
+                onUsernameChange = viewModel::setEditorUsername,
+                onCheckUsername = viewModel::checkUsername,
+                onSave = viewModel::saveProfile,
             )
         }
     }
@@ -182,6 +238,7 @@ internal fun ProfileContent(
     onOpenInvite: () -> Unit,
     onOpenVerification: () -> Unit,
     onOpenSettings: () -> Unit,
+    onEditProfile: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -214,6 +271,7 @@ internal fun ProfileContent(
             onOpenInvite = onOpenInvite,
             onOpenVerification = onOpenVerification,
             onOpenSettings = onOpenSettings,
+            onEditProfile = onEditProfile,
             onSignOut = onSignOut,
             modifier = modifier,
         )
@@ -232,6 +290,7 @@ private fun ProfileLoaded(
     onOpenInvite: () -> Unit,
     onOpenVerification: () -> Unit,
     onOpenSettings: () -> Unit,
+    onEditProfile: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -245,6 +304,7 @@ private fun ProfileLoaded(
                 profile = profile,
                 onOpenVerification = onOpenVerification,
                 onOpenSettings = onOpenSettings,
+                onEditProfile = onEditProfile,
             )
         }
         item(key = "stats") {
@@ -291,6 +351,7 @@ private fun ProfileIdentity(
     profile: UserData,
     onOpenVerification: () -> Unit,
     onOpenSettings: () -> Unit,
+    onEditProfile: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(modifier = Modifier.fillMaxWidth().height(148.dp).background(NbTheme.colors.surfaceSoft)) {
@@ -359,7 +420,137 @@ private fun ProfileIdentity(
                 }
                 Text("Reputation ${profile.reputation.cleanScore()}", style = MaterialTheme.typography.labelMedium, color = NbTheme.colors.inkMuted)
             }
+            NbOutlinedButton(
+                text = "Edit profile",
+                onClick = onEditProfile,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
+    }
+}
+
+@Composable
+private fun ProfileEditorSheet(
+    profile: UserData,
+    state: ProfileEditorState,
+    onDismiss: () -> Unit,
+    onPickProfilePicture: () -> Unit,
+    onRemoveProfilePicture: () -> Unit,
+    onNameChange: (String) -> Unit,
+    onAboutChange: (String) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onCheckUsername: () -> Unit,
+    onSave: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = NbDimens.space20),
+        verticalArrangement = Arrangement.spacedBy(NbDimens.space16),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                Text("Edit profile", style = MaterialTheme.typography.titleLarge, color = NbTheme.colors.ink)
+                Text("Keep your public details current.", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
+            }
+            IconButton(onClick = onDismiss, enabled = !state.isSaving) {
+                Icon(NbIcons.Close, contentDescription = "Close edit profile", tint = NbTheme.colors.inkMuted)
+            }
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(NbTheme.colors.surfaceSoft),
+                contentAlignment = Alignment.Center,
+            ) {
+                val imageModel: Any? = state.selectedProfilePicture ?: if (state.removeProfilePicture) null else profile.profilePicture
+                if (imageModel != null) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = "Selected profile picture",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(NbIcons.Profile, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(34.dp))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space8), modifier = Modifier.padding(top = NbDimens.space8)) {
+                TextButton(onClick = onPickProfilePicture, enabled = !state.isSaving && !state.isPreparingImage) {
+                    if (state.isPreparingImage) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = NbTheme.colors.brandTeal, strokeWidth = 2.dp)
+                    } else {
+                        Icon(NbIcons.Camera, contentDescription = null, tint = NbTheme.colors.brandTeal, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(NbDimens.space4))
+                        Text("Choose photo", color = NbTheme.colors.brandTeal)
+                    }
+                }
+                if (profile.profilePicture != null || state.selectedProfilePicture != null) {
+                    TextButton(onClick = onRemoveProfilePicture, enabled = !state.isSaving && !state.isPreparingImage) {
+                        Icon(NbIcons.Trash, contentDescription = null, tint = NbTheme.colors.brandPink, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(NbDimens.space4))
+                        Text("Remove", color = NbTheme.colors.brandPink)
+                    }
+                }
+            }
+        }
+
+        NbTextField(
+            value = state.name,
+            onValueChange = onNameChange,
+            label = "Display name",
+            placeholder = "Your name",
+            enabled = !state.isSaving,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default,
+        )
+        NbTextField(
+            value = state.about,
+            onValueChange = onAboutChange,
+            label = "About",
+            placeholder = "A short introduction",
+            enabled = !state.isSaving,
+            singleLine = false,
+            maxLines = 5,
+        )
+        NbTextField(
+            value = state.username,
+            onValueChange = onUsernameChange,
+            label = "Username",
+            placeholder = "your.username",
+            enabled = !state.isSaving,
+            error = state.usernameError.orEmpty(),
+            leadingIcon = { Text("@", color = NbTheme.colors.inkMuted, style = MaterialTheme.typography.bodyLarge) },
+            trailingIcon = {
+                when {
+                    state.isCheckingUsername -> CircularProgressIndicator(modifier = Modifier.size(17.dp), color = NbTheme.colors.brandTeal, strokeWidth = 2.dp)
+                    state.usernameAvailable == true -> Icon(NbIcons.Check, contentDescription = "Username available", tint = NbTheme.colors.brandMint, modifier = Modifier.size(18.dp))
+                    state.usernameAvailable == false -> Icon(NbIcons.Close, contentDescription = "Username unavailable", tint = NbTheme.colors.brandPink, modifier = Modifier.size(18.dp))
+                }
+            },
+        )
+        if (state.usernameError == "Availability could not be checked.") {
+            TextButton(onClick = onCheckUsername, enabled = !state.isCheckingUsername && !state.isSaving) {
+                Text("Check again", color = NbTheme.colors.brandTeal)
+            }
+        }
+        Text("Usernames can be changed once every 30 days.", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+
+        state.error?.let { error ->
+            Text(error, style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.brandPink)
+        }
+        NbButton(
+            text = if (state.isSaving) "Saving..." else "Save changes",
+            onClick = onSave,
+            enabled = state.canSave,
+            loading = state.isSaving,
+            modifier = Modifier.fillMaxWidth(),
+            variant = NbButtonVariant.Secondary,
+        )
     }
 }
 

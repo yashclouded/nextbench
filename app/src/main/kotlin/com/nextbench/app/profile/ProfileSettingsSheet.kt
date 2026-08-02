@@ -32,6 +32,7 @@ internal fun ProfileSettingsSheet(
     onOpenSaved: () -> Unit,
     onOpenInvite: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onEditProfile: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     Column(
@@ -53,6 +54,7 @@ internal fun ProfileSettingsSheet(
             checked = user.chatPrivacy?.followersOnly == true,
             onCheckedChange = onToggleFollowersOnly,
         )
+        SettingsActionRow(NbIcons.Profile, "Edit profile", onEditProfile)
         SettingsActionRow(NbIcons.Bookmark, "Saved posts", onOpenSaved)
         SettingsActionRow(NbIcons.Share, "Invite friends", onOpenInvite)
         SettingsActionRow(NbIcons.Bell, "Notifications", onOpenNotifications)

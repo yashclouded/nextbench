@@ -6,7 +6,9 @@ import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
 import java.util.Date
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileRepositoryContractTest {
@@ -55,5 +57,37 @@ class ProfileRepositoryContractTest {
 
         assertEquals(12, content.followersCount)
         assertEquals(7, content.followingCount)
+    }
+
+    @Test
+    fun `username validation mirrors the website contract`() {
+        assertTrue(validateUsername("maya.notes").valid)
+        assertFalse(validateUsername("2maya").valid)
+        assertFalse(validateUsername("ma").valid)
+        assertFalse(validateUsername("maya__notes").valid)
+        assertFalse(validateUsername("marketplace").valid)
+        assertEquals("mayanotes", normalizeUsernameInput("Maya Notes!!"))
+    }
+
+    @Test
+    fun `profile updates enforce public field limits`() {
+        assertEquals(
+            "Display name is required.",
+            validateProfileUpdate(ProfileUpdateDraft(name = " ", about = "", username = "maya")),
+        )
+        assertEquals(
+            "About can be up to 500 characters.",
+            validateProfileUpdate(ProfileUpdateDraft(name = "Maya", about = "a".repeat(501), username = "maya")),
+        )
+        assertSame(null, validateProfileUpdate(ProfileUpdateDraft(name = "Maya", about = "Reader", username = "maya")))
+    }
+
+    @Test
+    fun `username cooldown expires exactly after thirty days`() {
+        val now = 2_000_000_000_000L
+        assertEquals(ProfileRepository.UsernameCooldownMillis, usernameCooldownRemaining(now, now))
+        assertEquals(1L, usernameCooldownRemaining(now, now + ProfileRepository.UsernameCooldownMillis - 1L))
+        assertEquals(0L, usernameCooldownRemaining(now, now + ProfileRepository.UsernameCooldownMillis))
+        assertEquals(0L, usernameCooldownRemaining(null, now))
     }
 }
