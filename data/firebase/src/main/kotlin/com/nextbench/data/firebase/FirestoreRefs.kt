@@ -44,4 +44,9 @@ class FirestoreRefs @Inject constructor(private val db: FirebaseFirestore) {
     fun messages(roomId: String): CollectionReference = chatRooms.document(roomId).collection("messages")
     fun club(id: String): DocumentReference = clubs.document(id)
     fun clubMessages(clubId: String): CollectionReference = clubs.document(clubId).collection("messages")
+    fun story(id: String): DocumentReference = stories.document(id)
+    fun storyViews(id: String): CollectionReference = story(id).collection("views")
+    fun storyLikes(id: String): CollectionReference = story(id).collection("likes")
+    fun storyReplies(id: String): CollectionReference = story(id).collection("replies")
+    fun storySeen(uid: String): DocumentReference = user(uid).collection("private").document("storySeen")
 }

@@ -98,6 +98,17 @@ enum class StoryMediaType(val raw: String) {
     }
 }
 
+enum class StoryPrivacy(val raw: String) {
+    Public("public"),
+    Followers("followers"),
+    CloseFriends("closeFriends");
+
+    companion object {
+        fun from(raw: String?): StoryPrivacy =
+            entries.firstOrNull { it.raw == raw } ?: Public
+    }
+}
+
 enum class ClubType(val raw: String) {
     Public("public"),
     Private("private");

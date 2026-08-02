@@ -21,7 +21,7 @@ data class Story(
     val height: Int = 0,
     val durationMs: Long? = null,
     val layers: List<Map<String, Any>> = emptyList(),
-    val privacy: String = ContentPrivacy.Public.raw,
+    val privacy: String = StoryPrivacy.Public.raw,
     val status: String = "active",
     val createdAt: Long = 0L,
     val expiresAt: Long = 0L,
