@@ -8,13 +8,19 @@ import org.junit.Test
 
 class AuthNavigationTest {
     @Test
-    fun `closing auth preserves its caller when one exists`() {
-        assertNull(authExitFallback(poppedCaller = true))
+    fun `closing auth preserves a public caller`() {
+        assertNull(authExitDestination(NbRoute.PostDetail.path))
+    }
+
+    @Test
+    fun `closing auth discards a protected caller`() {
+        assertEquals(NbRoute.Feed.path, authExitDestination(NbRoute.Profile.path))
+        assertEquals(NbRoute.Feed.path, authExitDestination(NbRoute.Messages.path))
     }
 
     @Test
     fun `closing root auth falls back to feed`() {
-        assertEquals(NbRoute.Feed.path, authExitFallback(poppedCaller = false))
+        assertEquals(NbRoute.Feed.path, authExitDestination(null))
     }
 
     @Test

@@ -139,12 +139,15 @@ fun AuthScreen(
             authViewModel.backToEmail()
             return
         }
-        val fallback = authExitFallback(navController.popBackStack())
-        if (fallback != null) {
-            navController.navigate(fallback) {
-                popUpTo(NbRoute.Splash.path) { inclusive = true }
-                launchSingleTop = true
-            }
+
+        val destination = authExitDestination(
+            callerRoute = navController.previousBackStackEntry?.destination?.route,
+        )
+        if (destination == null && navController.popBackStack()) return
+
+        navController.navigate(destination ?: NbRoute.Feed.path) {
+            popUpTo(NbRoute.Feed.path) { inclusive = false }
+            launchSingleTop = true
         }
     }
 
@@ -1142,8 +1145,10 @@ private fun OtpMode.routePath(): String = when (this) {
     OtpMode.Signup -> NbRoute.Signup.path
 }
 
-internal fun authExitFallback(poppedCaller: Boolean): String? =
-    NbRoute.Feed.path.takeUnless { poppedCaller }
+internal fun authExitDestination(callerRoute: String?): String? =
+    NbRoute.Feed.path.takeIf {
+        callerRoute == null || requirementForRoute(callerRoute) != RouteRequirement.Public
+    }
 
 internal fun Exception.authMessage(): String = when (this) {
     is NoCredentialException ->
