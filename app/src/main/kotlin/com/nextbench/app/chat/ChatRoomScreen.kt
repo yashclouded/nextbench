@@ -76,7 +76,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import com.nextbench.core.common.formatRelativeTime
 import com.nextbench.core.designsystem.NbAvatar
@@ -114,13 +117,21 @@ fun ChatRoomScreen(
     val viewerId = user?.uid
     val listState = rememberLazyListState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var showAttachmentPicker by remember { mutableStateOf(false) }
     var initialScrollComplete by remember { mutableStateOf(false) }
     var typingClock by remember { mutableStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.onScreenDisposed() }
+    DisposableEffect(viewModel, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.onScreenDisposed()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onScreenDisposed()
+        }
     }
     LaunchedEffect(state.messages.size) {
         if (state.messages.isEmpty()) return@LaunchedEffect
