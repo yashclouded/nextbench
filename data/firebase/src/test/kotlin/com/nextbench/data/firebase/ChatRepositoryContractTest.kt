@@ -1,6 +1,7 @@
 package com.nextbench.data.firebase
 
 import com.nextbench.data.model.ChatRoom
+import com.nextbench.data.model.ClubType
 import com.nextbench.data.model.UserData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,6 +9,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRepositoryContractTest {
+
+    @Test
+    fun `club documents match the shared web schema`() {
+        val club = mapOf<String, Any?>(
+            "name" to "Design Circle",
+            "avatar" to "https://cdn/club.jpg",
+            "school" to "NIT Jaipur",
+            "city" to "Jaipur",
+            "type" to "private",
+            "leadId" to "lead-1",
+            "memberIds" to listOf("lead-1", "student-2"),
+            "memberCount" to 2L,
+            "settings" to mapOf("slowMode" to 30L, "onlyLeadsCanPost" to true),
+        ).toClub("club-1")
+
+        assertEquals("club-1", club.id)
+        assertEquals("https://cdn/club.jpg", club.avatar)
+        assertEquals("lead-1", club.leadId)
+        assertEquals(2, club.memberCount)
+        assertEquals(30, club.settings.slowMode)
+        assertEquals(true, club.settings.onlyLeadsCanPost)
+        assertEquals(ClubType.Private.raw, club.type)
+    }
+
+    @Test
+    fun `legacy club fields remain readable without migration`() {
+        val club = mapOf<String, Any?>(
+            "imageUrl" to "https://cdn/legacy.jpg",
+            "leadIds" to listOf("lead-1"),
+            "memberIds" to listOf("lead-1"),
+            "settings" to mapOf("slowMode" to true),
+        ).toClub("legacy")
+
+        assertEquals("https://cdn/legacy.jpg", club.avatar)
+        assertEquals("lead-1", club.leadId)
+        assertEquals(1, club.memberCount)
+        assertEquals(0, club.settings.slowMode)
+    }
 
     @Test
     fun `text messages match the shared web room contract`() {

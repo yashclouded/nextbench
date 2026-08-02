@@ -6,6 +6,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.nextbench.data.model.ChatRoom
+import com.nextbench.data.model.Club
+import com.nextbench.data.model.ClubSettings
 import com.nextbench.data.model.FileAttachment
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageStatus
@@ -289,6 +291,46 @@ internal fun Map<String, Any?>.toChatRoom(id: String): ChatRoom = ChatRoom(
     archivedBy = chatStringList("archivedBy"),
     pinnedBy = chatStringList("pinnedBy"),
     deletedBy = chatStringList("deletedBy"),
+)
+
+internal fun DocumentSnapshot.toClub(): Club? =
+    takeIf(DocumentSnapshot::exists)?.data?.toClub(id)
+
+internal fun Map<String, Any?>.toClub(id: String): Club = Club(
+    id = id,
+    name = chatString("name"),
+    description = chatNullableString("description"),
+    avatar = chatNullableString("avatar") ?: chatNullableString("imageUrl"),
+    school = chatString("school"),
+    city = chatNullableString("city"),
+    type = chatString("type", "public"),
+    leadId = chatNullableString("leadId") ?: chatStringList("leadIds").firstOrNull(),
+    coLeadIds = chatStringList("coLeadIds"),
+    memberIds = chatStringList("memberIds"),
+    inviteCode = chatNullableString("inviteCode"),
+    memberCount = (get("memberCount") as? Number)?.toInt()?.coerceAtLeast(0)
+        ?: chatStringList("memberIds").size,
+    lastMessage = chatNullableString("lastMessage"),
+    lastSenderId = chatNullableString("lastSenderId"),
+    lastSenderName = chatNullableString("lastSenderName"),
+    tags = chatStringList("tags"),
+    pinnedMessageId = chatNullableString("pinnedMessageId"),
+    pinnedMessageText = chatNullableString("pinnedMessageText"),
+    updatedAt = chatTimestamp("updatedAt"),
+    unreadBy = chatStringList("unreadBy"),
+    mutedBy = chatStringList("mutedBy"),
+    archivedBy = chatStringList("archivedBy"),
+    pinnedBy = chatStringList("pinnedBy"),
+    deletedBy = chatStringList("deletedBy"),
+    settings = chatMap("settings").toClubSettings(),
+    createdAt = chatTimestamp("createdAt"),
+)
+
+private fun Map<String, Any?>.toClubSettings(): ClubSettings = ClubSettings(
+    hideMembersAbove50 = get("hideMembersAbove50") as? Boolean ?: false,
+    onlyLeadsCanPost = get("onlyLeadsCanPost") as? Boolean ?: false,
+    slowMode = (get("slowMode") as? Number)?.toInt()?.coerceAtLeast(0) ?: 0,
+    muteNotifications = get("muteNotifications") as? Boolean ?: false,
 )
 
 internal fun Map<String, Any?>.toChatMessage(id: String): Message? {

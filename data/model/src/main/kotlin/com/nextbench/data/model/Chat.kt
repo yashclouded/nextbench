@@ -34,15 +34,22 @@ data class Club(
     @DocumentId val id: String = "",
     val name: String = "",
     val description: String? = null,
-    val imageUrl: String? = null,
+    /** Website writes this field as `avatar`; kept separate from user profile images. */
+    val avatar: String? = null,
     val school: String = "",
+    val city: String? = null,
     val type: String = ClubType.Public.raw,
-    val leadIds: List<String> = emptyList(),
+    val leadId: String? = null,
     val coLeadIds: List<String> = emptyList(),
     val memberIds: List<String> = emptyList(),
     val inviteCode: String? = null,
+    val memberCount: Int = 0,
     val lastMessage: String? = null,
     val lastSenderId: String? = null,
+    val lastSenderName: String? = null,
+    val tags: List<String> = emptyList(),
+    val pinnedMessageId: String? = null,
+    val pinnedMessageText: String? = null,
     val updatedAt: Timestamp? = null,
     val unreadBy: List<String> = emptyList(),
     val mutedBy: List<String> = emptyList(),
@@ -56,7 +63,8 @@ data class Club(
 data class ClubSettings(
     val hideMembersAbove50: Boolean = false,
     val onlyLeadsCanPost: Boolean = false,
-    val slowMode: Boolean = false,
+    /** Website stores this as a number of seconds; zero means disabled. */
+    val slowMode: Int = 0,
     val muteNotifications: Boolean = false,
 )
 
