@@ -44,8 +44,6 @@ sealed class NbRoute(val path: String) {
 
     data object Terms : NbRoute("terms")
     data object Privacy : NbRoute("privacy")
-    data object Careers : NbRoute("careers")
-    data object Transparency : NbRoute("transparency")
 
     companion object {
         /** Routes that render the bottom bar. */
@@ -61,8 +59,6 @@ sealed class NbRoute(val path: String) {
             Auth,
             Terms,
             Privacy,
-            Careers,
-            Transparency,
         )
 
         fun tabFor(path: String?): NbTab? = NbTab.entries.firstOrNull { it.route.path == path }

@@ -36,6 +36,8 @@ import com.nextbench.app.marketplace.ProductComposerScreen
 import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.notifications.NotificationsScreen
 import com.nextbench.app.invite.InviteScreen
+import com.nextbench.app.legal.LegalDocument
+import com.nextbench.app.legal.LegalDocumentScreen
 import com.nextbench.app.clubs.ClubChatScreen
 import com.nextbench.app.clubs.ClubJoinScreen
 import com.nextbench.app.clubs.ClubsScreen
@@ -478,10 +480,8 @@ fun NbNavHost(
             }
         }
         composable(NbRoute.Auth.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Login, navController = navController) }
-        composable(NbRoute.Terms.path) { PlaceholderScreen(NbIcons.Check, "Terms", "The terms that guide a respectful campus community.") }
-        composable(NbRoute.Privacy.path) { PlaceholderScreen(NbIcons.Check, "Privacy", "How NextBench protects your information.") }
-        composable(NbRoute.Careers.path) { PlaceholderScreen(NbIcons.Check, "Careers", "Help build a better student platform.") }
-        composable(NbRoute.Transparency.path) { PlaceholderScreen(NbIcons.Check, "Transparency", "How we make decisions about safety and trust.") }
+        composable(NbRoute.Terms.path) { LegalDocumentScreen(LegalDocument.Terms, onBack = { navigateBackOrFeed(navController) }) }
+        composable(NbRoute.Privacy.path) { LegalDocumentScreen(LegalDocument.Privacy, onBack = { navigateBackOrFeed(navController) }) }
     }
 }
 
