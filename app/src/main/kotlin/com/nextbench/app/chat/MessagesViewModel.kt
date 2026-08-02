@@ -24,6 +24,8 @@ data class MessagesUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val viewerId: String? = null,
+    val busyRoomIds: Set<String> = emptySet(),
+    val notice: ChatNotice? = null,
 ) {
     val visibleRooms: List<ChatRoomListItem>
         get() = rooms.filter { item ->
@@ -51,6 +53,7 @@ class MessagesViewModel @Inject constructor(
 
     private var viewer: UserData? = null
     private var roomsJob: Job? = null
+    private var noticeId = 0L
 
     fun syncViewer(user: UserData?) {
         if (viewer?.uid == user?.uid && (viewer == null) == (user == null)) return
@@ -88,10 +91,71 @@ class MessagesViewModel @Inject constructor(
         _state.update { it.copy(showArchived = !it.showArchived) }
     }
 
+    fun toggleArchive(item: ChatRoomListItem): Boolean = roomAction(
+        item = item,
+        successMessage = if (item.archived) "Conversation restored" else "Conversation archived",
+    ) { roomId, uid -> repository.setArchived(roomId, uid, !item.archived) }
+
+    fun toggleMute(item: ChatRoomListItem): Boolean = roomAction(
+        item = item,
+        successMessage = if (item.muted) "Notifications unmuted" else "Notifications muted",
+    ) { roomId, uid -> repository.setMuted(roomId, uid, !item.muted) }
+
+    fun togglePin(item: ChatRoomListItem): Boolean = roomAction(
+        item = item,
+        successMessage = if (item.pinned) "Conversation unpinned" else "Conversation pinned",
+    ) { roomId, uid -> repository.setPinned(roomId, uid, !item.pinned) }
+
+    fun toggleRead(item: ChatRoomListItem): Boolean = roomAction(
+        item = item,
+        successMessage = if (item.hasUnreadActivity) "Marked as read" else "Marked as unread",
+    ) { roomId, uid -> repository.setUnread(roomId, uid, !item.hasUnreadActivity) }
+
+    fun delete(item: ChatRoomListItem): Boolean = roomAction(
+        item = item,
+        successMessage = "Conversation removed",
+    ) { roomId, uid -> repository.deleteForUser(roomId, uid) }
+
+    fun dismissNotice(id: Long) {
+        _state.update { current -> if (current.notice?.id == id) current.copy(notice = null) else current }
+    }
+
     fun retry() {
         val current = viewer
         viewer = null
         syncViewer(current)
+    }
+
+    private fun roomAction(
+        item: ChatRoomListItem,
+        successMessage: String,
+        operation: suspend (roomId: String, uid: String) -> Result<Unit>,
+    ): Boolean {
+        val uid = viewer?.uid ?: return false
+        val roomId = item.room.id
+        if (roomId.isBlank() || roomId in state.value.busyRoomIds) return false
+        _state.update { it.copy(busyRoomIds = it.busyRoomIds + roomId) }
+        viewModelScope.launch {
+            operation(roomId, uid).fold(
+                onSuccess = {
+                    _state.update {
+                        it.copy(
+                            busyRoomIds = it.busyRoomIds - roomId,
+                            notice = ChatNotice(++noticeId, successMessage, ChatNoticeKind.Success),
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _state.update {
+                        it.copy(
+                            busyRoomIds = it.busyRoomIds - roomId,
+                            notice = ChatNotice(++noticeId, error.chatMessage(), ChatNoticeKind.Error),
+                        )
+                    }
+                },
+            )
+        }
+        return true
     }
 
     companion object {

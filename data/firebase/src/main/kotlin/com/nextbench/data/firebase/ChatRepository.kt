@@ -34,9 +34,12 @@ data class ChatRoomListItem(
     val otherUser: UserData?,
     val viewerId: String,
 ) {
-    val unread: Boolean get() = viewerId in room.unreadBy
+    val hasUnreadActivity: Boolean get() = viewerId in room.unreadBy
+    val unread: Boolean get() = hasUnreadActivity && !muted
+    val muted: Boolean get() = viewerId in room.mutedBy
     val archived: Boolean get() = viewerId in room.archivedBy
-    val deleted: Boolean get() = viewerId in room.deletedBy && !unread
+    val pinned: Boolean get() = viewerId in room.pinnedBy
+    val deleted: Boolean get() = viewerId in room.deletedBy && !hasUnreadActivity
 }
 
 data class ChatRoomDetail(
@@ -272,6 +275,41 @@ class ChatRepository @Inject constructor(
         ).await()
     }
 
+    suspend fun setArchived(roomId: String, uid: String, archived: Boolean): Result<Unit> =
+        updateViewerFlag(roomId, uid, "archivedBy", archived)
+
+    suspend fun setMuted(roomId: String, uid: String, muted: Boolean): Result<Unit> =
+        updateViewerFlag(roomId, uid, "mutedBy", muted)
+
+    suspend fun setPinned(roomId: String, uid: String, pinned: Boolean): Result<Unit> =
+        updateViewerFlag(roomId, uid, "pinnedBy", pinned)
+
+    suspend fun setUnread(roomId: String, uid: String, unread: Boolean): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        if (unread) {
+            refs.chatRoom(roomId).update("unreadBy", FieldValue.arrayUnion(uid)).await()
+        } else {
+            refs.chatRoom(roomId).update(
+                mapOf(
+                    "unreadBy" to FieldValue.arrayRemove(uid),
+                    "deletedBy" to FieldValue.arrayRemove(uid),
+                ),
+            ).await()
+        }
+    }
+
+    suspend fun deleteForUser(roomId: String, uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        refs.chatRoom(roomId).update(
+            mapOf(
+                "deletedBy" to FieldValue.arrayUnion(uid),
+                "unreadBy" to FieldValue.arrayRemove(uid),
+            ),
+        ).await()
+    }
+
     suspend fun acceptRequest(roomId: String, uid: String): Result<Unit> = runCatching {
         ensureConfigured()
         requireAuthenticated(uid)
@@ -371,6 +409,13 @@ class ChatRepository @Inject constructor(
 
     private suspend fun isRoomParticipant(roomId: String, uid: String): Boolean =
         refs.chatRoom(roomId).get().await().toChatRoom()?.participants?.contains(uid) == true
+
+    private suspend fun updateViewerFlag(roomId: String, uid: String, field: String, enabled: Boolean): Result<Unit> =
+        runCatching {
+            ensureConfigured()
+            requireAuthenticated(uid)
+            refs.chatRoom(roomId).update(field, if (enabled) FieldValue.arrayUnion(uid) else FieldValue.arrayRemove(uid)).await()
+        }
 
     private suspend fun sendAttachment(
         roomId: String,

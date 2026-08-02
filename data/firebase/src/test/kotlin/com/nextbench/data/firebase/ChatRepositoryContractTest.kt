@@ -126,6 +126,25 @@ class ChatRepositoryContractTest {
     }
 
     @Test
+    fun `muted unread activity does not hide a deleted conversation`() {
+        val item = ChatRoomListItem(
+            room = ChatRoom(
+                id = "room",
+                deletedBy = listOf("viewer"),
+                unreadBy = listOf("viewer"),
+                mutedBy = listOf("viewer"),
+            ),
+            otherUser = null,
+            viewerId = "viewer",
+        )
+
+        assertTrue(item.hasUnreadActivity)
+        assertFalse(item.unread)
+        assertFalse(item.deleted)
+        assertTrue(item.muted)
+    }
+
+    @Test
     fun `block state is symmetric for send policy`() {
         assertTrue(ChatBlockState(blockedByViewer = true).isBlocked)
         assertTrue(ChatBlockState(blockedViewer = true).isBlocked)
