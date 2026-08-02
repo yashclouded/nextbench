@@ -26,9 +26,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +51,7 @@ import coil.compose.AsyncImage
 import com.nextbench.core.common.formatRelativeTime
 import com.nextbench.core.common.formatRupees
 import com.nextbench.core.designsystem.NbAvatar
+import com.nextbench.core.designsystem.NbBottomSheet
 import com.nextbench.core.designsystem.NbButton
 import com.nextbench.core.designsystem.NbButtonVariant
 import com.nextbench.core.designsystem.NbDimens
@@ -55,17 +60,20 @@ import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbPill
 import com.nextbench.core.designsystem.NbSkeletonBox
 import com.nextbench.core.designsystem.NbTheme
+import com.nextbench.core.designsystem.NbVerifiedBadge
 import com.nextbench.core.designsystem.pressScale
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PublicProfileScreen(
     profileKey: String,
     username: Boolean,
     onOpenListing: (String) -> Unit,
     onOpenPost: (String) -> Unit,
+    onOpenProfile: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PublicProfileViewModel = hiltViewModel(),
 ) {
@@ -80,25 +88,33 @@ fun PublicProfileScreen(
             action = { NbButton("Try again", { viewModel.retry(profileKey, username) }) },
             modifier = modifier.fillMaxSize(),
         )
-        else -> PublicProfileContent(state, viewModel::selectTab, onOpenListing, onOpenPost, modifier)
+        else -> PublicProfileContent(state, viewModel::selectTab, onOpenListing, onOpenPost, onOpenProfile, modifier)
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PublicProfileContent(
     state: PublicProfileUiState,
     onSelectTab: (ProfileTab) -> Unit,
     onOpenListing: (String) -> Unit,
     onOpenPost: (String) -> Unit,
+    onOpenProfile: (String) -> Unit,
     modifier: Modifier,
 ) {
     val user = state.user ?: return
+    var listType by remember { mutableStateOf<FollowListType?>(null) }
     LazyColumn(
         modifier = modifier.fillMaxSize().background(NbTheme.colors.surfaceBase),
         contentPadding = PaddingValues(bottom = NbDimens.space32),
         verticalArrangement = Arrangement.spacedBy(NbDimens.space16),
     ) {
-        item { PublicIdentity(user) }
+        item { PublicIdentity(user, state, onFollowers = { listType = FollowListType.Followers }, onFollowing = { listType = FollowListType.Following }) }
+        if (state.stats.mutualCount > 0) {
+            item {
+                MutualStrip(state = state, onOpen = { listType = FollowListType.Mutuals })
+            }
+        }
         item {
             Row(modifier = Modifier.padding(horizontal = NbDimens.space16), horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
                 ProfileTab.entries.forEach { tab ->
@@ -126,10 +142,25 @@ private fun PublicProfileContent(
             }
         }
     }
+    listType?.let { type ->
+        val users = when (type) {
+            FollowListType.Followers -> state.stats.followers
+            FollowListType.Following -> state.stats.following
+            FollowListType.Mutuals -> state.stats.mutuals
+        }
+        NbBottomSheet(onDismiss = { listType = null }) {
+            FollowListSheet(type = type, users = users, onOpenProfile = { listType = null; onOpenProfile(it) })
+        }
+    }
 }
 
 @Composable
-private fun PublicIdentity(user: UserData) {
+private fun PublicIdentity(
+    user: UserData,
+    state: PublicProfileUiState,
+    onFollowers: () -> Unit,
+    onFollowing: () -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(modifier = Modifier.fillMaxWidth().height(136.dp).background(NbTheme.colors.surfaceSoft)) {
             user.coverPhoto?.takeIf(String::isNotBlank)?.let { AsyncImage(it, "Profile cover photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
@@ -145,9 +176,57 @@ private fun PublicIdentity(user: UserData) {
             val location = listOfNotNull(user.school.takeIf(String::isNotBlank), user.city.takeIf(String::isNotBlank)).joinToString("  ·  ")
             if (location.isNotBlank()) Text(location, style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
             user.about?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.ink) }
+            Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space16)) {
+                ProfileCount(value = state.stats.followersCount, label = "Followers", onClick = onFollowers)
+                ProfileCount(value = state.stats.followingCount, label = "Following", onClick = onFollowing)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
                 if (user.verified) NbPill("Verified", contentColor = NbTheme.colors.brandTeal)
                 NbPill("Reputation ${user.reputation.cleanScore()}", contentColor = NbTheme.colors.inkMuted)
+            }
+        }
+    }
+}
+
+private enum class FollowListType(val title: String) { Followers("Followers"), Following("Following"), Mutuals("Mutual friends") }
+
+@Composable
+private fun ProfileCount(value: Int, label: String, onClick: () -> Unit) {
+    Column(modifier = Modifier.clip(RoundedCornerShape(NbDimens.radiusSm)).clickable(onClick = onClick).padding(vertical = NbDimens.space4), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
+        Text(value.toString(), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = NbTheme.colors.ink)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+    }
+}
+
+@Composable
+private fun MutualStrip(state: PublicProfileUiState, onOpen: () -> Unit) {
+    Surface(color = NbTheme.colors.surfaceSoft, shape = RoundedCornerShape(NbDimens.radiusMd), modifier = Modifier.padding(horizontal = NbDimens.space16).fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(modifier = Modifier.padding(NbDimens.space12), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+            Row {
+                state.stats.mutuals.take(3).forEach { mutual -> NbAvatar(imageUrl = mutual.profilePicture, name = mutual.name, size = 28.dp, modifier = Modifier.padding(end = 2.dp)) }
+            }
+            val first = state.stats.mutuals.firstOrNull()?.name ?: "People you know"
+            Text("Followed by $first${if (state.stats.mutualCount > 1) " and ${state.stats.mutualCount - 1} others" else ""}", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun FollowListSheet(type: FollowListType, users: List<UserData>, onOpenProfile: (String) -> Unit) {
+    Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+        Text(type.title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+        if (users.isEmpty()) {
+            Text("No members to show yet.", style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted, modifier = Modifier.padding(vertical = NbDimens.space16))
+        } else {
+            users.forEach { member ->
+                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(NbDimens.radiusSm)).clickable { onOpenProfile(member.uid) }.padding(vertical = NbDimens.space4), verticalAlignment = Alignment.CenterVertically) {
+                    NbAvatar(imageUrl = member.profilePicture, name = member.name, size = NbDimens.avatarMd)
+                    Column(modifier = Modifier.padding(start = NbDimens.space8).weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
+                        Text(member.name.ifBlank { "Student" }, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                        member.username?.takeIf(String::isNotBlank)?.let { Text("@$it", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted) }
+                    }
+                    if (member.verified) NbVerifiedBadge(size = 15.dp)
+                }
             }
         }
     }

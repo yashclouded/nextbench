@@ -7,26 +7,43 @@ import com.nextbench.data.model.UserData
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.tasks.await
 
 data class PublicProfileContent(
     val user: UserData?,
     val listings: List<Product>,
     val posts: List<Post>,
+    val stats: PublicProfileStats = PublicProfileStats(),
+)
+
+data class PublicProfileStats(
+    val followersCount: Int = 0,
+    val followingCount: Int = 0,
+    val followers: List<UserData> = emptyList(),
+    val following: List<UserData> = emptyList(),
+    val mutuals: List<UserData> = emptyList(),
+    val mutualCount: Int = 0,
 )
 
 @Singleton
 class PublicProfileRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
+    private val refsProvider: Provider<FirestoreRefs>,
     private val functionsProvider: Provider<NbFunctions>,
 ) {
     private val auth get() = authProvider.get()
+    private val refs get() = refsProvider.get()
     private val functions get() = functionsProvider.get()
 
     suspend fun load(userId: String): Result<PublicProfileContent> = runCatching {
         ensureConfigured()
         requireNotNull(auth.currentUser?.uid) { "Sign in to view profiles." }
         require(userId.isNotBlank()) { "Missing profile id." }
-        functions.getPublicProfileContent(userId).toPublicProfileContent()
+        val content = functions.getPublicProfileContent(userId).toPublicProfileContent()
+        content.copy(stats = loadStats(userId, auth.currentUser?.uid.orEmpty()))
     }
 
     suspend fun resolveUsername(username: String): Result<String?> = runCatching {
@@ -43,6 +60,43 @@ class PublicProfileRepository @Inject constructor(
 
     private fun ensureConfigured() {
         if (!BuildConfig.FIREBASE_CONFIGURED) throw PublicProfileConfigurationException()
+    }
+
+    private fun requireAuthenticated(uid: String) {
+        require(uid.isNotBlank() && auth.currentUser?.uid == uid) { "Your session expired. Sign in and try again." }
+    }
+
+    private suspend fun loadStats(targetId: String, viewerId: String): PublicProfileStats = coroutineScope {
+        val followersSnap = refs.follows.whereEqualTo("followingId", targetId).get().await()
+        val followingSnap = refs.follows.whereEqualTo("followerId", targetId).get().await()
+        val followerIds = followersSnap.documents.mapNotNull { it.getString("followerId") }.distinct()
+        val followingIds = followingSnap.documents.mapNotNull { it.getString("followingId") }.distinct()
+        val viewerFollowing = async { refs.follows.whereEqualTo("followerId", viewerId).get().await() }
+        val viewerFollowers = async { refs.follows.whereEqualTo("followingId", viewerId).get().await() }
+        val viewerNetwork = (viewerFollowing.await().documents.mapNotNull { it.getString("followingId") } + viewerFollowers.await().documents.mapNotNull { it.getString("followerId") }).toSet()
+        val targetNetwork = (followerIds + followingIds).toSet()
+        val mutualIds = targetNetwork.intersect(viewerNetwork).filter { it != viewerId }.toList()
+        val displayIds = (followerIds.take(MaxListUsers) + followingIds.take(MaxListUsers) + mutualIds.take(MaxMutualUsers)).distinct()
+        val users = displayIds.map { id -> async { id to refs.user(id).get().await().toObject(UserData::class.java)?.copy(uid = id) } }.awaitAll().toMap()
+        PublicProfileStats(
+            followersCount = followerIds.size,
+            followingCount = followingIds.size,
+            followers = followerIds.take(MaxListUsers).mapNotNull(users::get),
+            following = followingIds.take(MaxListUsers).mapNotNull(users::get),
+            mutuals = mutualIds.take(MaxMutualUsers).mapNotNull(users::get),
+            mutualCount = mutualIds.size,
+        )
+    }
+
+    suspend fun updateFollowersOnly(uid: String, enabled: Boolean): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        refs.user(uid).update("chatPrivacy.followersOnly", enabled).await()
+    }
+
+    companion object {
+        private const val MaxListUsers = 50
+        private const val MaxMutualUsers = 3
     }
 }
 

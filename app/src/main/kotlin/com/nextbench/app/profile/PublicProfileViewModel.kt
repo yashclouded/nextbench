@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.PublicProfileContent
 import com.nextbench.data.firebase.PublicProfileRepository
+import com.nextbench.data.firebase.PublicProfileStats
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
@@ -24,6 +25,7 @@ data class PublicProfileUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val resolvedId: String? = null,
+    val stats: PublicProfileStats = PublicProfileStats(),
 )
 
 @HiltViewModel
@@ -68,6 +70,7 @@ private fun PublicProfileContent.toUiState(id: String) = PublicProfileUiState(
     user = user,
     listings = listings,
     posts = posts,
+    stats = stats,
     isLoading = false,
     resolvedId = id,
 )

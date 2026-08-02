@@ -356,6 +356,7 @@ fun NbNavHost(
                     username = false,
                     onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
                     onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
+                    onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
                 )
             }
         }
@@ -369,6 +370,7 @@ fun NbNavHost(
                     username = true,
                     onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
                     onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
+                    onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
                 )
             }
         }
