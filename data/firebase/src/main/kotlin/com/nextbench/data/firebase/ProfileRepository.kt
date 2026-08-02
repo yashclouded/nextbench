@@ -19,6 +19,8 @@ data class ProfileContent(
     val user: UserData?,
     val listings: List<Product>,
     val posts: List<Post>,
+    val followersCount: Int = 0,
+    val followingCount: Int = 0,
 )
 
 @Singleton
@@ -30,17 +32,30 @@ class ProfileRepository @Inject constructor(
     private val refs get() = refsProvider.get()
 
     fun observeProfile(uid: String): Flow<ProfileContent> = configuredFlow(uid) {
-        combine(
+        val identityAndActivity = combine(
             refs.user(uid).snapshotFlow(),
             refs.products.whereEqualTo("sellerId", uid).snapshotFlow(),
             refs.posts.whereEqualTo("authorId", uid).snapshotFlow(),
         ) { userSnapshot, listingSnapshot, postSnapshot ->
-            buildProfileContent(
-                user = userSnapshot.takeIf(DocumentSnapshot::exists)
+            Triple(
+                userSnapshot.takeIf(DocumentSnapshot::exists)
                     ?.toObject(UserData::class.java)
                     ?.copy(uid = uid),
-                listings = listingSnapshot.documents.mapNotNull(DocumentSnapshot::toMarketplaceProduct),
-                posts = postSnapshot.documents.mapNotNull(DocumentSnapshot::toProfilePost),
+                listingSnapshot.documents.mapNotNull(DocumentSnapshot::toMarketplaceProduct),
+                postSnapshot.documents.mapNotNull(DocumentSnapshot::toProfilePost),
+            )
+        }
+        val connections = combine(
+            refs.follows.whereEqualTo("followingId", uid).snapshotFlow(),
+            refs.follows.whereEqualTo("followerId", uid).snapshotFlow(),
+        ) { followers, following -> followers.size() to following.size() }
+        combine(identityAndActivity, connections) { content, counts ->
+            buildProfileContent(
+                user = content.first,
+                listings = content.second,
+                posts = content.third,
+                followersCount = counts.first,
+                followingCount = counts.second,
             )
         }
     }
@@ -72,6 +87,8 @@ internal fun buildProfileContent(
     user: UserData?,
     listings: List<Product>,
     posts: List<Post>,
+    followersCount: Int = 0,
+    followingCount: Int = 0,
 ): ProfileContent = ProfileContent(
     user = user,
     listings = listings
@@ -80,6 +97,8 @@ internal fun buildProfileContent(
     posts = posts
         .sortedByDescending { it.createdAt?.toDate()?.time ?: Long.MIN_VALUE }
         .distinctBy(Post::id),
+    followersCount = followersCount.coerceAtLeast(0),
+    followingCount = followingCount.coerceAtLeast(0),
 )
 
 private fun DocumentSnapshot.toProfilePost(): Post? = data?.plus("id" to id)?.toPost()

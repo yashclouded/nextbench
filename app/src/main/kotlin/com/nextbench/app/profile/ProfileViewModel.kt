@@ -24,6 +24,8 @@ data class ProfileUiState(
     val user: UserData? = null,
     val listings: List<Product> = emptyList(),
     val posts: List<Post> = emptyList(),
+    val followersCount: Int = 0,
+    val followingCount: Int = 0,
     val tab: ProfileTab = ProfileTab.Listings,
     val isLoading: Boolean = true,
     val error: String? = null,
@@ -58,6 +60,8 @@ class ProfileViewModel @Inject constructor(
                             user = content.user ?: it.user,
                             listings = content.listings,
                             posts = content.posts,
+                            followersCount = content.followersCount,
+                            followingCount = content.followingCount,
                             isLoading = false,
                             error = null,
                         )

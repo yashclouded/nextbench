@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,12 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,14 +65,26 @@ import com.nextbench.data.model.UserData
 fun PublicProfileScreen(
     profileKey: String,
     username: Boolean,
+    viewer: UserData?,
     onOpenListing: (String) -> Unit,
     onOpenPost: (String) -> Unit,
     onOpenProfile: (String) -> Unit,
+    onOpenChat: (String) -> Unit,
+    onOpenOwnProfile: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PublicProfileViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(profileKey, username) { viewModel.load(profileKey, username) }
+    LaunchedEffect(state.resolvedId, viewer?.uid) {
+        if (state.resolvedId != null && state.resolvedId == viewer?.uid) onOpenOwnProfile()
+    }
+    LaunchedEffect(state.pendingRoomId) {
+        state.pendingRoomId?.let { roomId ->
+            viewModel.consumeRoom(roomId)
+            onOpenChat(roomId)
+        }
+    }
     when {
         state.isLoading -> PublicProfileLoading(modifier)
         state.user == null -> NbEmptyState(
@@ -88,7 +94,18 @@ fun PublicProfileScreen(
             action = { NbButton("Try again", { viewModel.retry(profileKey, username) }) },
             modifier = modifier.fillMaxSize(),
         )
-        else -> PublicProfileContent(state, viewModel::selectTab, onOpenListing, onOpenPost, onOpenProfile, modifier)
+        else -> PublicProfileContent(
+            state = state,
+            viewer = viewer,
+            onSelectTab = viewModel::selectTab,
+            onFollow = { viewModel.toggleFollow(viewer) },
+            onMessage = { viewModel.startChat(viewer) },
+            onDismissError = viewModel::dismissActionError,
+            onOpenListing = onOpenListing,
+            onOpenPost = onOpenPost,
+            onOpenProfile = onOpenProfile,
+            modifier = modifier,
+        )
     }
 }
 
@@ -96,7 +113,11 @@ fun PublicProfileScreen(
 @Composable
 private fun PublicProfileContent(
     state: PublicProfileUiState,
+    viewer: UserData?,
     onSelectTab: (ProfileTab) -> Unit,
+    onFollow: () -> Unit,
+    onMessage: () -> Unit,
+    onDismissError: () -> Unit,
     onOpenListing: (String) -> Unit,
     onOpenPost: (String) -> Unit,
     onOpenProfile: (String) -> Unit,
@@ -109,28 +130,33 @@ private fun PublicProfileContent(
         contentPadding = PaddingValues(bottom = NbDimens.space32),
         verticalArrangement = Arrangement.spacedBy(NbDimens.space16),
     ) {
-        item { PublicIdentity(user, state, onFollowers = { listType = FollowListType.Followers }, onFollowing = { listType = FollowListType.Following }) }
+        item {
+            PublicIdentity(
+                user = user,
+                state = state,
+                onFollowers = { listType = FollowListType.Followers },
+                onFollowing = { listType = FollowListType.Following },
+            )
+        }
+        if (viewer?.uid != user.uid) {
+            item {
+                PublicActions(
+                    following = state.stats.isFollowing,
+                    followedBy = state.stats.isFollowedBy,
+                    followBusy = state.isFollowingBusy,
+                    messageBusy = state.isStartingChat,
+                    onFollow = onFollow,
+                    onMessage = onMessage,
+                )
+            }
+        }
         if (state.stats.mutualCount > 0) {
             item {
                 MutualStrip(state = state, onOpen = { listType = FollowListType.Mutuals })
             }
         }
         item {
-            Row(modifier = Modifier.padding(horizontal = NbDimens.space16), horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
-                ProfileTab.entries.forEach { tab ->
-                    val selected = state.tab == tab
-                    Surface(
-                        color = if (selected) NbTheme.colors.ink else NbTheme.colors.surfaceCard,
-                        shape = RoundedCornerShape(NbDimens.radiusFull),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(NbDimens.radiusFull))
-                            .clickable(role = Role.Tab) { onSelectTab(tab) }
-                            .semantics { role = Role.Tab; contentDescription = tab.label() },
-                    ) {
-                        Text(tab.labelWithCount(state), color = if (selected) NbTheme.colors.surfaceBase else NbTheme.colors.inkMuted, modifier = Modifier.padding(horizontal = NbDimens.space14, vertical = NbDimens.space8))
-                    }
-                }
-            }
+            ProfileActivityTabs(state.tab, state.listings.size, state.posts.size, onSelectTab)
         }
         item {
             AnimatedContent(
@@ -152,6 +178,15 @@ private fun PublicProfileContent(
             FollowListSheet(type = type, users = users, onOpenProfile = { listType = null; onOpenProfile(it) })
         }
     }
+    state.actionError?.let { message ->
+        NbBottomSheet(onDismiss = onDismissError) {
+            Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+                Text("Could not complete that action", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                Text(message, style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
+                NbButton("Dismiss", onClick = onDismissError, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Secondary)
+            }
+        }
+    }
 }
 
 @Composable
@@ -162,7 +197,7 @@ private fun PublicIdentity(
     onFollowing: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.fillMaxWidth().height(136.dp).background(NbTheme.colors.surfaceSoft)) {
+        Box(modifier = Modifier.fillMaxWidth().height(148.dp).background(NbTheme.colors.surfaceSoft)) {
             user.coverPhoto?.takeIf(String::isNotBlank)?.let { AsyncImage(it, "Profile cover photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         }
         Row(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalAlignment = Alignment.Bottom) {
@@ -176,25 +211,49 @@ private fun PublicIdentity(
             val location = listOfNotNull(user.school.takeIf(String::isNotBlank), user.city.takeIf(String::isNotBlank)).joinToString("  ·  ")
             if (location.isNotBlank()) Text(location, style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
             user.about?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.ink) }
-            Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space16)) {
-                ProfileCount(value = state.stats.followersCount, label = "Followers", onClick = onFollowers)
-                ProfileCount(value = state.stats.followingCount, label = "Following", onClick = onFollowing)
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
                 if (user.verified) NbPill("Verified", contentColor = NbTheme.colors.brandTeal)
                 NbPill("Reputation ${user.reputation.cleanScore()}", contentColor = NbTheme.colors.inkMuted)
             }
         }
+        ProfileStatsRow(
+            followers = state.stats.followersCount,
+            following = state.stats.followingCount,
+            listings = state.listings.size,
+            posts = state.posts.size,
+            onFollowers = onFollowers,
+            onFollowing = onFollowing,
+            modifier = Modifier.padding(top = NbDimens.space8),
+        )
     }
 }
 
 private enum class FollowListType(val title: String) { Followers("Followers"), Following("Following"), Mutuals("Mutual friends") }
 
 @Composable
-private fun ProfileCount(value: Int, label: String, onClick: () -> Unit) {
-    Column(modifier = Modifier.clip(RoundedCornerShape(NbDimens.radiusSm)).clickable(onClick = onClick).padding(vertical = NbDimens.space4), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
-        Text(value.toString(), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = NbTheme.colors.ink)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+private fun PublicActions(
+    following: Boolean,
+    followedBy: Boolean,
+    followBusy: Boolean,
+    messageBusy: Boolean,
+    onFollow: () -> Unit,
+    onMessage: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16), horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+        NbButton(
+            text = if (following) "Following" else if (followedBy) "Follow back" else "Follow",
+            onClick = onFollow,
+            loading = followBusy,
+            modifier = Modifier.weight(1f),
+            variant = if (following) NbButtonVariant.Secondary else NbButtonVariant.Primary,
+        )
+        NbButton(
+            text = "Message",
+            onClick = onMessage,
+            loading = messageBusy,
+            modifier = Modifier.weight(1f),
+            variant = NbButtonVariant.Secondary,
+        )
     }
 }
 
@@ -289,7 +348,5 @@ private fun PublicProfileLoading(modifier: Modifier) {
     }
 }
 
-private fun ProfileTab.label() = if (this == ProfileTab.Listings) "Listings" else "Posts"
-private fun ProfileTab.labelWithCount(state: PublicProfileUiState) = if (this == ProfileTab.Listings) "Listings ${state.listings.size}" else "Posts ${state.posts.size}"
 private fun Double.cleanScore(): String = if (this % 1.0 == 0.0) toInt().toString() else "%.1f".format(this)
 private fun Modifier.offsetAvatar() = padding(top = 0.dp)

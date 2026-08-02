@@ -364,9 +364,12 @@ fun NbNavHost(
                 PublicProfileScreen(
                     profileKey = it.arguments?.getString("userId").orEmpty(),
                     username = false,
+                    viewer = (session as? SessionState.SignedIn)?.userData,
                     onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
                     onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
                     onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
+                    onOpenChat = { roomId -> navController.navigate(NbRoute.messages(roomId)) { launchSingleTop = true } },
+                    onOpenOwnProfile = { navController.navigateToTab(NbTab.Profile) },
                 )
             }
         }
@@ -378,9 +381,12 @@ fun NbNavHost(
                 PublicProfileScreen(
                     profileKey = it.arguments?.getString("username").orEmpty(),
                     username = true,
+                    viewer = (session as? SessionState.SignedIn)?.userData,
                     onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
                     onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
                     onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
+                    onOpenChat = { roomId -> navController.navigate(NbRoute.messages(roomId)) { launchSingleTop = true } },
+                    onOpenOwnProfile = { navController.navigateToTab(NbTab.Profile) },
                 )
             }
         }

@@ -41,4 +41,19 @@ class PublicProfileRepositoryContractTest {
         assertTrue(mapped.listings.isEmpty())
         assertTrue(mapped.posts.isEmpty())
     }
+
+    @Test
+    fun `public profile stats retain relationship state`() {
+        val stats = PublicProfileStats(
+            followersCount = 4,
+            followingCount = 2,
+            mutualCount = 1,
+            isFollowing = true,
+            isFollowedBy = false,
+        )
+
+        assertTrue(stats.isFollowing)
+        assertTrue(!stats.isFollowedBy)
+        assertEquals(4, stats.followersCount)
+    }
 }

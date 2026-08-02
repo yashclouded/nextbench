@@ -42,4 +42,18 @@ class ProfileRepositoryContractTest {
         assertEquals(emptyList<Product>(), content.listings)
         assertEquals(emptyList<Post>(), content.posts)
     }
+
+    @Test
+    fun `profile content preserves connection counts`() {
+        val content = buildProfileContent(
+            user = null,
+            listings = emptyList(),
+            posts = emptyList(),
+            followersCount = 12,
+            followingCount = 7,
+        )
+
+        assertEquals(12, content.followersCount)
+        assertEquals(7, content.followingCount)
+    }
 }

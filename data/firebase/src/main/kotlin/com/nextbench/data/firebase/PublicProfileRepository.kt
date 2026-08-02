@@ -1,6 +1,7 @@
 package com.nextbench.data.firebase
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
@@ -25,6 +26,8 @@ data class PublicProfileStats(
     val following: List<UserData> = emptyList(),
     val mutuals: List<UserData> = emptyList(),
     val mutualCount: Int = 0,
+    val isFollowing: Boolean = false,
+    val isFollowedBy: Boolean = false,
 )
 
 @Singleton
@@ -65,6 +68,10 @@ class PublicProfileRepository @Inject constructor(
         require(uid.isNotBlank() && auth.currentUser?.uid == uid) { "Your session expired. Sign in and try again." }
     }
 
+    private suspend fun hasBlockRelationship(firstId: String, secondId: String): Boolean =
+        refs.blocks.document("${firstId}_$secondId").get().await().exists() ||
+            refs.blocks.document("${secondId}_$firstId").get().await().exists()
+
     private suspend fun loadStats(targetId: String, viewerId: String): PublicProfileStats = coroutineScope {
         val followersDeferred = async { refs.follows.whereEqualTo("followingId", targetId).get().await() }
         val followingDeferred = async { refs.follows.whereEqualTo("followerId", targetId).get().await() }
@@ -88,7 +95,49 @@ class PublicProfileRepository @Inject constructor(
             following = followingIds.take(MaxListUsers).mapNotNull(users::get),
             mutuals = mutualIds.take(MaxMutualUsers).mapNotNull(users::get),
             mutualCount = mutualIds.size,
+            isFollowing = viewerId in followerIds,
+            isFollowedBy = viewerId in followingIds,
         )
+    }
+
+    suspend fun toggleFollow(targetId: String, viewer: UserData): Result<Boolean> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(viewer.uid)
+        require(viewer.verified) { "Verify your profile before following people." }
+        require(targetId.isNotBlank() && targetId != viewer.uid) { "This profile cannot be followed." }
+        require(!hasBlockRelationship(viewer.uid, targetId)) { "You cannot follow this member." }
+
+        val existing = refs.follows
+            .whereEqualTo("followerId", viewer.uid)
+            .whereEqualTo("followingId", targetId)
+            .get()
+            .await()
+        if (!existing.isEmpty) {
+            val batch = refs.follows.firestore.batch()
+            existing.documents.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+            false
+        } else {
+            refs.follows.document().set(
+                mapOf(
+                    "followerId" to viewer.uid,
+                    "followingId" to targetId,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                ),
+            ).await()
+            runCatching {
+                functions.createNotification(
+                    mapOf(
+                        "userId" to targetId,
+                        "type" to "new_message",
+                        "title" to "New follower",
+                        "message" to "${viewer.name.ifBlank { "Someone" }} started following you.",
+                        "link" to "/profile/${viewer.uid}",
+                    ),
+                )
+            }
+            true
+        }
     }
 
     suspend fun updateFollowersOnly(uid: String, enabled: Boolean): Result<Unit> = runCatching {

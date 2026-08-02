@@ -307,6 +307,51 @@ class ChatRepository @Inject constructor(
         batch.commit().await()
     }
 
+    suspend fun getOrCreateDirectRoom(viewer: UserData, otherUserId: String): Result<String> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(viewer.uid)
+        require(viewer.verified) { "Verify your profile before sending direct messages." }
+        require(otherUserId.isNotBlank() && otherUserId != viewer.uid) { "This conversation cannot be started." }
+        require(!hasBlockRelationship(viewer.uid, listOf(otherUserId))) { "Cannot message this member." }
+
+        val existing = refs.chatRooms
+            .whereArrayContains("participants", viewer.uid)
+            .get()
+            .await()
+            .documents
+            .firstOrNull { snapshot ->
+                val room = snapshot.toChatRoom()
+                room?.type == "dm" && otherUserId in room.participants
+            }
+        if (existing != null) return@runCatching existing.id
+
+        val target = refs.user(otherUserId).get().await()
+        require(target.exists()) { "This member is no longer available." }
+        val followersOnly = target.get("chatPrivacy.followersOnly") as? Boolean ?: false
+        val followsTarget = refs.follows
+            .whereEqualTo("followerId", viewer.uid)
+            .whereEqualTo("followingId", otherUserId)
+            .limit(1)
+            .get()
+            .await()
+            .documents
+            .isNotEmpty()
+        val pending = followersOnly && !followsTarget
+        val roomRef = refs.chatRooms.document()
+        roomRef.set(
+            buildMap<String, Any> {
+                put("participants", listOf(viewer.uid, otherUserId))
+                put("type", "dm")
+                put("lastMessage", "")
+                put("lastSenderId", "")
+                put("status", if (pending) "pending" else "active")
+                put("updatedAt", FieldValue.serverTimestamp())
+                if (pending) put("requestedBy", viewer.uid)
+            },
+        ).await()
+        roomRef.id
+    }
+
     private suspend fun loadUser(uid: String): UserData? =
         refs.user(uid).get().await().takeIf { it.exists() }?.toObject(UserData::class.java)?.copy(uid = uid)
 

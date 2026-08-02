@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.PublicProfileContent
 import com.nextbench.data.firebase.PublicProfileRepository
 import com.nextbench.data.firebase.PublicProfileStats
+import com.nextbench.data.firebase.ChatRepository
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
@@ -26,11 +27,16 @@ data class PublicProfileUiState(
     val error: String? = null,
     val resolvedId: String? = null,
     val stats: PublicProfileStats = PublicProfileStats(),
+    val isFollowingBusy: Boolean = false,
+    val isStartingChat: Boolean = false,
+    val pendingRoomId: String? = null,
+    val actionError: String? = null,
 )
 
 @HiltViewModel
 class PublicProfileViewModel @Inject constructor(
     private val repository: PublicProfileRepository,
+    private val chatRepository: ChatRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PublicProfileUiState())
     val state: StateFlow<PublicProfileUiState> = _state.asStateFlow()
@@ -63,6 +69,50 @@ class PublicProfileViewModel @Inject constructor(
 
     fun selectTab(tab: ProfileTab) {
         _state.value = _state.value.copy(tab = tab)
+    }
+
+    fun toggleFollow(viewer: UserData?) {
+        val targetId = state.value.resolvedId ?: return
+        val currentViewer = viewer ?: return
+        if (state.value.isFollowingBusy || currentViewer.uid == targetId) return
+        _state.value = state.value.copy(isFollowingBusy = true, actionError = null)
+        viewModelScope.launch {
+            repository.toggleFollow(targetId, currentViewer).fold(
+                onSuccess = { following ->
+                    _state.value = state.value.copy(
+                        isFollowingBusy = false,
+                        stats = state.value.stats.copy(
+                            isFollowing = following,
+                            followersCount = (state.value.stats.followersCount + if (following) 1 else -1).coerceAtLeast(0),
+                        ),
+                    )
+                },
+                onFailure = { error ->
+                    _state.value = state.value.copy(isFollowingBusy = false, actionError = error.publicProfileMessage())
+                },
+            )
+        }
+    }
+
+    fun startChat(viewer: UserData?) {
+        val targetId = state.value.resolvedId ?: return
+        val currentViewer = viewer ?: return
+        if (state.value.isStartingChat || currentViewer.uid == targetId) return
+        _state.value = state.value.copy(isStartingChat = true, actionError = null)
+        viewModelScope.launch {
+            chatRepository.getOrCreateDirectRoom(currentViewer, targetId).fold(
+                onSuccess = { roomId -> _state.value = state.value.copy(isStartingChat = false, pendingRoomId = roomId) },
+                onFailure = { error -> _state.value = state.value.copy(isStartingChat = false, actionError = error.publicProfileMessage()) },
+            )
+        }
+    }
+
+    fun consumeRoom(roomId: String) {
+        if (state.value.pendingRoomId == roomId) _state.value = state.value.copy(pendingRoomId = null)
+    }
+
+    fun dismissActionError() {
+        if (state.value.actionError != null) _state.value = state.value.copy(actionError = null)
     }
 }
 

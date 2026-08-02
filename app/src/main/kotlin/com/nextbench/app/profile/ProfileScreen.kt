@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
@@ -41,12 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -252,18 +247,25 @@ private fun ProfileLoaded(
                 onOpenSettings = onOpenSettings,
             )
         }
+        item(key = "stats") {
+            ProfileStatsRow(
+                followers = state.followersCount,
+                following = state.followingCount,
+                listings = state.listings.size,
+                posts = state.posts.size,
+            )
+        }
         item(key = "shortcuts") {
-            ProfileShortcuts(
-                onOpenSaved = onOpenSaved,
-                onOpenMessages = onOpenMessages,
-                onOpenInvite = onOpenInvite,
+            ProfileActionStrip(
+                actions = listOf(
+                    ProfileAction(NbIcons.Bookmark, "Saved", onOpenSaved, NbTheme.colors.brandTeal),
+                    ProfileAction(NbIcons.Messages, "Messages", onOpenMessages, NbTheme.colors.brandTeal),
+                    ProfileAction(NbIcons.Share, "Invite", onOpenInvite, NbTheme.colors.brandPink),
+                ),
             )
         }
         item(key = "activity-header") {
-            ProfileActivityHeader(
-                state = state,
-                onSelectTab = onSelectTab,
-            )
+            ProfileActivityTabs(state.tab, state.listings.size, state.posts.size, onSelectTab)
         }
         item(key = "activity-content") {
             AnimatedContent(
@@ -291,12 +293,7 @@ private fun ProfileIdentity(
     onOpenSettings: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(156.dp)
-                .background(NbTheme.colors.surfaceSoft),
-        ) {
+        Box(modifier = Modifier.fillMaxWidth().height(148.dp).background(NbTheme.colors.surfaceSoft)) {
             profile.coverPhoto?.takeIf(String::isNotBlank)?.let { cover ->
                 AsyncImage(
                     model = cover,
@@ -305,11 +302,6 @@ private fun ProfileIdentity(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, NbTheme.colors.overlay.copy(alpha = 0.22f)))),
-            )
             IconButton(
                 onClick = onOpenSettings,
                 modifier = Modifier
@@ -366,69 +358,6 @@ private fun ProfileIdentity(
                     Text("Verify profile", style = MaterialTheme.typography.labelMedium, color = NbTheme.colors.brandTeal, modifier = Modifier.clickable(onClick = onOpenVerification).padding(NbDimens.space4))
                 }
                 Text("Reputation ${profile.reputation.cleanScore()}", style = MaterialTheme.typography.labelMedium, color = NbTheme.colors.inkMuted)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProfileShortcuts(
-    onOpenSaved: () -> Unit,
-    onOpenMessages: () -> Unit,
-    onOpenInvite: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16),
-        horizontalArrangement = Arrangement.spacedBy(NbDimens.space8),
-    ) {
-        ProfileShortcut(NbIcons.Bookmark, "Saved", onOpenSaved)
-        ProfileShortcut(NbIcons.Messages, "Messages", onOpenMessages)
-        ProfileShortcut(NbIcons.Share, "Invite", onOpenInvite)
-    }
-}
-
-@Composable
-private fun RowScope.ProfileShortcut(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    Surface(
-        color = NbTheme.colors.surfaceCard,
-        shape = RoundedCornerShape(NbDimens.radiusMd),
-        modifier = Modifier.weight(1f).pressScale(onTap = onClick).semantics { role = Role.Button; contentDescription = label },
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = NbDimens.space12),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(NbDimens.space4),
-        ) {
-            Icon(icon, contentDescription = null, tint = NbTheme.colors.brandTeal, modifier = Modifier.size(21.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
-        }
-    }
-}
-
-@Composable
-private fun ProfileActivityHeader(state: ProfileUiState, onSelectTab: (ProfileTab) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
-                Text("Your activity", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
-                Text("${state.listings.size} listings  ·  ${state.posts.size} posts", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
-            ProfileTab.entries.forEach { tab ->
-                val selected = tab == state.tab
-                Surface(
-                    color = if (selected) NbTheme.colors.ink else NbTheme.colors.surfaceCard,
-                    shape = RoundedCornerShape(NbDimens.radiusFull),
-                    modifier = Modifier.clip(RoundedCornerShape(NbDimens.radiusFull)).clickable(role = Role.Tab, onClick = { onSelectTab(tab) }).semantics { role = Role.Tab },
-                ) {
-                    Text(
-                        text = when (tab) { ProfileTab.Listings -> "Listings"; ProfileTab.Posts -> "Posts" },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (selected) NbTheme.colors.surfaceBase else NbTheme.colors.inkMuted,
-                        modifier = Modifier.padding(horizontal = NbDimens.space14, vertical = NbDimens.space8),
-                    )
-                }
             }
         }
     }
