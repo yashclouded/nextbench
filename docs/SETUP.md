@@ -44,7 +44,23 @@ npm test --prefix functions-android
 firebase deploy --only functions:android-push
 ```
 
-## 3. Build and test
+## 3. Release signing
+
+Debug builds do not need a signing key. Release APKs and AABs must be signed with the
+same keystore used for the Play Console application. Keep the keystore outside git and
+add these values to `local.properties` or the CI secret environment:
+
+```properties
+RELEASE_STORE_FILE=/absolute/path/to/nextbench-release.jks
+RELEASE_STORE_PASSWORD=...
+RELEASE_KEY_ALIAS=nextbench
+RELEASE_KEY_PASSWORD=...
+```
+
+The Gradle release tasks fail early when Firebase, Cloudinary, or release signing is
+missing. Never commit the keystore, passwords, or `app/google-services.json`.
+
+## 4. Build and test
 
 ```bash
 ./gradlew test assembleDebug

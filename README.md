@@ -19,6 +19,10 @@ For a configuration-free debug compile:
 
 Firebase-backed features require the private project configuration described in [docs/SETUP.md](docs/SETUP.md).
 
+Release builds also require a locally configured release keystore. See the release
+signing section in [docs/SETUP.md](docs/SETUP.md); signing credentials and key files are
+ignored and must never be committed.
+
 ## Modules
 
 - `app`: application shell, navigation, and system integrations

@@ -28,6 +28,15 @@ fun localProp(key: String, default: String = ""): String =
 
 fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
+val releaseStoreFile = localProp("RELEASE_STORE_FILE")
+val releaseStorePassword = localProp("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = localProp("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = localProp("RELEASE_KEY_PASSWORD")
+val releaseSigningConfigured = releaseStoreFile.isNotBlank() &&
+    releaseStorePassword.isNotBlank() &&
+    releaseKeyAlias.isNotBlank() &&
+    releaseKeyPassword.isNotBlank()
+
 val googleServicesFile = file("google-services.json")
 fun googleWebClientId(): String {
     localProp("GOOGLE_WEB_CLIENT_ID").takeIf(String::isNotBlank)?.let { return it }
@@ -73,6 +82,12 @@ if (releasePackagingRequested) {
     check(localProp("CLOUDINARY_UPLOAD_PRESET").isNotBlank()) {
         "CLOUDINARY_UPLOAD_PRESET is required for release builds."
     }
+    check(releaseSigningConfigured) {
+        "Release signing is not configured. Set RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD in ignored local.properties or the environment."
+    }
+    check(rootProject.file(releaseStoreFile).isFile) {
+        "Release keystore was not found at '$releaseStoreFile'."
+    }
 }
 
 android {
@@ -92,9 +107,20 @@ android {
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(googleWebClientId()))
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFile.isNotBlank()) {
+                storeFile = rootProject.file(releaseStoreFile)
+            }
+            storePassword = releaseStorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
