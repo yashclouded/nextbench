@@ -8,14 +8,17 @@ Copy `local.properties.example` to `local.properties`. Keep the Android SDK path
 CLOUDINARY_CLOUD_NAME=your_cloud_name
 CLOUDINARY_UPLOAD_PRESET=your_unsigned_preset
 GIPHY_API_KEY=your_key
-GOOGLE_WEB_CLIENT_ID=your_firebase_web_oauth_client_id
 ```
+
+`GOOGLE_WEB_CLIENT_ID` is read from `google-services.json`. You can set it in `local.properties` only when you intentionally need to override that generated value.
+
+For local testing, client-safe values can also come from the ignored root `.env`; Android accepts both `CLOUDINARY_CLOUD_NAME` and the website-style `VITE_CLOUDINARY_CLOUD_NAME` names.
 
 Only client-safe identifiers belong in this file. Never place Cloudinary API secrets or Firebase Admin credentials in the Android project.
 
 ## 2. Firebase Android app
 
-In Firebase project `nextbench-a11ed`, register an Android application with package name `com.nextbench.app`. Download its `google-services.json` and place it at:
+In Firebase project `nextbench-a11ed`, use the Android application with package name `com.nextbench.app`. Download its `google-services.json` and place it at:
 
 ```text
 app/google-services.json

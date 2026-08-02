@@ -11,8 +11,17 @@ val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use(::load)
 }
+val envProps = Properties().apply {
+    val file = rootProject.file(".env")
+    if (file.exists()) file.inputStream().use(::load)
+}
 
-fun localProp(key: String): String = localProps.getProperty(key) ?: System.getenv(key).orEmpty()
+fun localProp(key: String): String =
+    localProps.getProperty(key)
+        ?: System.getenv(key)
+        ?: envProps.getProperty(key)
+        ?: envProps.getProperty("VITE_$key")
+        ?: ""
 
 fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 

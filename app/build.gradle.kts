@@ -1,4 +1,5 @@
 import java.util.Properties
+import groovy.json.JsonSlurper
 
 plugins {
     alias(libs.plugins.android.application)
@@ -14,12 +15,41 @@ val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
+val envProps = Properties().apply {
+    val f = rootProject.file(".env")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
 fun localProp(key: String, default: String = ""): String =
-    (localProps.getProperty(key) ?: System.getenv(key) ?: default)
+    localProps.getProperty(key)
+        ?: System.getenv(key)
+        ?: envProps.getProperty(key)
+        ?: envProps.getProperty("VITE_$key")
+        ?: default
 
 fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val googleServicesFile = file("google-services.json")
+fun googleWebClientId(): String {
+    localProp("GOOGLE_WEB_CLIENT_ID").takeIf(String::isNotBlank)?.let { return it }
+    if (!googleServicesFile.exists()) return ""
+
+    val config = JsonSlurper().parse(googleServicesFile) as? Map<*, *> ?: return ""
+    val clients = config["client"] as? List<*> ?: return ""
+    return clients.asSequence()
+        .mapNotNull { it as? Map<*, *> }
+        .filter { client ->
+            val info = client["client_info"] as? Map<*, *>
+            val androidInfo = info?.get("android_client_info") as? Map<*, *>
+            androidInfo?.get("package_name") == "com.nextbench.app"
+        }
+        .flatMap { client -> (client["oauth_client"] as? List<*>).orEmpty().asSequence() }
+        .mapNotNull { it as? Map<*, *> }
+        .firstOrNull { it["client_type"].toString() == "3" }
+        ?.get("client_id")
+        ?.toString()
+        .orEmpty()
+}
+
 if (googleServicesFile.exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
@@ -59,7 +89,7 @@ android {
 
         buildConfigField("boolean", "FIREBASE_CONFIGURED", googleServicesFile.exists().toString())
         buildConfigField("String", "GIPHY_API_KEY", quoted(localProp("GIPHY_API_KEY")))
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(localProp("GOOGLE_WEB_CLIENT_ID")))
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(googleWebClientId()))
     }
 
     buildTypes {

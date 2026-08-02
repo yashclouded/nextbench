@@ -5,4 +5,5 @@ sdk.dir=/path/to/Android/sdk
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_UPLOAD_PRESET=
 GIPHY_API_KEY=
+# Optional override. The normal value is read from app/google-services.json.
 GOOGLE_WEB_CLIENT_ID=
