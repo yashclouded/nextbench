@@ -87,6 +87,14 @@ class ClubRepository @Inject constructor(
         }.await()
     }
 
+    suspend fun findByInviteCode(uid: String, code: String): Result<Club?> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val normalized = code.trim()
+        require(normalized.isNotBlank()) { "Enter a club invite code first." }
+        refs.clubs.whereEqualTo("inviteCode", normalized).limit(1).get().await().documents.firstOrNull()?.toClub()
+    }
+
     suspend fun joinPublicClub(uid: String, clubId: String): Result<Club?> = runCatching {
         ensureConfigured()
         requireAuthenticated(uid)
