@@ -57,7 +57,6 @@ import coil.compose.AsyncImage
 import com.nextbench.core.common.formatRelativeTime
 import com.nextbench.core.common.formatRupees
 import com.nextbench.core.designsystem.NbAvatar
-import com.nextbench.core.designsystem.NbBottomSheet
 import com.nextbench.core.designsystem.NbButton
 import com.nextbench.core.designsystem.NbButtonVariant
 import com.nextbench.core.designsystem.NbCard
@@ -77,6 +76,7 @@ import com.nextbench.data.model.Product
 import com.nextbench.data.model.ProductStatus
 import com.nextbench.data.model.UserData
 import com.nextbench.data.model.VerificationStatus
+import com.nextbench.core.designsystem.NbBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,6 +88,8 @@ fun ProfileScreen(
     onOpenMessages: () -> Unit,
     onOpenInvite: () -> Unit,
     onOpenVerification: () -> Unit,
+    onOpenNotifications: () -> Unit,
+    onToggleTheme: () -> Unit,
     onSignOut: () -> Unit,
     signOutLoading: Boolean,
     signOutError: String?,
@@ -97,6 +99,7 @@ fun ProfileScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showSignOutSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
     LaunchedEffect(signOutError) {
         if (signOutError != null) showSignOutSheet = false
@@ -112,6 +115,7 @@ fun ProfileScreen(
         onOpenMessages = onOpenMessages,
         onOpenInvite = onOpenInvite,
         onOpenVerification = onOpenVerification,
+        onOpenSettings = { showSettingsSheet = true },
         onSignOut = { showSignOutSheet = true },
         modifier = modifier,
     )
@@ -142,6 +146,20 @@ fun ProfileScreen(
         }
     }
 
+    if (showSettingsSheet && state.user != null) {
+        NbBottomSheet(onDismiss = { showSettingsSheet = false }) {
+            ProfileSettingsSheet(
+                user = state.user!!,
+                onToggleTheme = onToggleTheme,
+                onToggleFollowersOnly = viewModel::setFollowersOnly,
+                onOpenSaved = { showSettingsSheet = false; onOpenSaved() },
+                onOpenInvite = { showSettingsSheet = false; onOpenInvite() },
+                onOpenNotifications = { showSettingsSheet = false; onOpenNotifications() },
+                onSignOut = { showSettingsSheet = false; showSignOutSheet = true },
+            )
+        }
+    }
+
     if (signOutError != null) {
         NbBottomSheet(onDismiss = onDismissSignOutError) {
             Column(
@@ -168,6 +186,7 @@ internal fun ProfileContent(
     onOpenMessages: () -> Unit,
     onOpenInvite: () -> Unit,
     onOpenVerification: () -> Unit,
+    onOpenSettings: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -199,6 +218,7 @@ internal fun ProfileContent(
             onOpenMessages = onOpenMessages,
             onOpenInvite = onOpenInvite,
             onOpenVerification = onOpenVerification,
+            onOpenSettings = onOpenSettings,
             onSignOut = onSignOut,
             modifier = modifier,
         )
@@ -216,6 +236,7 @@ private fun ProfileLoaded(
     onOpenMessages: () -> Unit,
     onOpenInvite: () -> Unit,
     onOpenVerification: () -> Unit,
+    onOpenSettings: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -228,7 +249,7 @@ private fun ProfileLoaded(
             ProfileIdentity(
                 profile = profile,
                 onOpenVerification = onOpenVerification,
-                onSignOut = onSignOut,
+                onOpenSettings = onOpenSettings,
             )
         }
         item(key = "shortcuts") {
@@ -267,7 +288,7 @@ private fun ProfileLoaded(
 private fun ProfileIdentity(
     profile: UserData,
     onOpenVerification: () -> Unit,
-    onSignOut: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
@@ -290,15 +311,15 @@ private fun ProfileIdentity(
                     .background(Brush.verticalGradient(listOf(Color.Transparent, NbTheme.colors.overlay.copy(alpha = 0.22f)))),
             )
             IconButton(
-                onClick = onSignOut,
+                onClick = onOpenSettings,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(NbDimens.space12)
                     .clip(CircleShape)
                     .background(NbTheme.colors.surfaceCard.copy(alpha = 0.90f))
-                    .semantics { contentDescription = "Sign out" },
+                    .semantics { contentDescription = "Open settings" },
             ) {
-                Icon(NbIcons.Logout, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(19.dp))
+                Icon(NbIcons.More, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(19.dp))
             }
         }
         Row(

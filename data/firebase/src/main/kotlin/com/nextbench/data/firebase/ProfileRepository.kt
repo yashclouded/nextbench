@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
 
 data class ProfileContent(
     val user: UserData?,
@@ -42,6 +43,12 @@ class ProfileRepository @Inject constructor(
                 posts = postSnapshot.documents.mapNotNull(DocumentSnapshot::toProfilePost),
             )
         }
+    }
+
+    suspend fun updateFollowersOnly(uid: String, enabled: Boolean): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        refs.user(uid).update("chatPrivacy.followersOnly", enabled).await()
     }
 
     private fun requireAuthenticated(uid: String) {

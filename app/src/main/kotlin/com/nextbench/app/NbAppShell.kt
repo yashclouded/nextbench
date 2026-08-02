@@ -95,6 +95,7 @@ fun NbAppShell(
         NbNavHost(
             navController = navController,
             authViewModel = authViewModel,
+            onToggleTheme = onToggleTheme,
             modifier = Modifier.padding(innerPadding),
         )
     }

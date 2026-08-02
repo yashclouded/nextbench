@@ -75,6 +75,16 @@ class ProfileViewModel @Inject constructor(
         viewerUid = null
         syncViewer(state.value.user?.copy(uid = uid))
     }
+
+    fun setFollowersOnly(enabled: Boolean) {
+        val uid = viewerUid ?: return
+        _state.update { current -> current.copy(user = current.user?.copy(chatPrivacy = current.user.chatPrivacy?.copy(followersOnly = enabled) ?: com.nextbench.data.model.ChatPrivacy(enabled))) }
+        viewModelScope.launch {
+            repository.updateFollowersOnly(uid, enabled).onFailure {
+                _state.update { current -> current.copy(user = current.user?.copy(chatPrivacy = current.user.chatPrivacy?.copy(followersOnly = !enabled))) }
+            }
+        }
+    }
 }
 
 internal fun Throwable.profileMessage(): String {

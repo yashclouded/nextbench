@@ -79,6 +79,7 @@ private val NbExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> Exit
 fun NbNavHost(
     navController: NavHostController,
     authViewModel: AuthViewModel,
+    onToggleTheme: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val session by authViewModel.session.collectAsStateWithLifecycle()
@@ -211,6 +212,10 @@ fun NbNavHost(
                     onOpenVerification = {
                         navController.navigate(NbRoute.Verification.path) { launchSingleTop = true }
                     },
+                    onOpenNotifications = {
+                        navController.navigate(NbRoute.Notifications.path) { launchSingleTop = true }
+                    },
+                    onToggleTheme = onToggleTheme,
                     onSignOut = authViewModel::signOut,
                     signOutLoading = signOutState.isLoading,
                     signOutError = signOutState.error?.message,
