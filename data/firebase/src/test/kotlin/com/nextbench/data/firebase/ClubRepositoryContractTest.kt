@@ -41,4 +41,34 @@ class ClubRepositoryContractTest {
         assertEquals("See you at the studio", payload["lastMessage"])
         assertTrue(payload.containsKey("unreadBy"))
     }
+
+    @Test
+    fun `club creation payload matches website schema and creator ownership`() {
+        val payload = clubCreationPayload(
+            creator = UserData(uid = "student-1", school = "Loreto", city = "Lucknow"),
+            name = "  Physics Study Group  ",
+            description = "  Weekly problem solving  ",
+            type = "private",
+            inviteCode = "AbC234xy",
+        )
+
+        assertEquals("Physics Study Group", payload["name"])
+        assertEquals("Weekly problem solving", payload["description"])
+        assertEquals("private", payload["type"])
+        assertEquals("student-1", payload["leadId"])
+        assertEquals(listOf("student-1"), payload["memberIds"])
+        assertEquals(1, payload["memberCount"])
+        assertEquals("Loreto", payload["school"])
+        assertEquals("Lucknow", payload["city"])
+        assertTrue(payload.containsKey("createdAt"))
+        assertTrue(payload.containsKey("updatedAt"))
+    }
+
+    @Test
+    fun `generated club invite codes are unambiguous and eight characters`() {
+        val code = generateClubInviteCode(kotlin.random.Random(7))
+
+        assertEquals(8, code.length)
+        assertTrue(code.all { it in "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789" })
+    }
 }

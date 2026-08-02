@@ -24,7 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,6 +40,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -45,6 +48,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nextbench.core.designsystem.NbButton
 import com.nextbench.core.designsystem.NbButtonVariant
+import com.nextbench.core.designsystem.NbBottomSheet
 import com.nextbench.core.designsystem.NbCard
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbEmptyState
@@ -61,6 +65,7 @@ import com.nextbench.data.model.Club
 import com.nextbench.data.model.ClubType
 import com.nextbench.data.model.UserData
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClubsScreen(
     user: UserData?,
@@ -69,7 +74,13 @@ fun ClubsScreen(
     viewModel: ClubsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val canCreateClub = user?.verified == true
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
+    LaunchedEffect(state.createdClubId) {
+        val clubId = state.createdClubId ?: return@LaunchedEffect
+        viewModel.consumeCreatedClub()
+        onOpenClub(clubId)
+    }
 
     Box(modifier = modifier.fillMaxSize().background(NbTheme.colors.surfaceBase)) {
         when {
@@ -87,6 +98,8 @@ fun ClubsScreen(
                 onInviteCodeChange = viewModel::setInviteCode,
                 onJoinCode = { viewModel.joinByCode() },
                 onJoinPublic = viewModel::joinPublicClub,
+                onCreateClub = viewModel::openCreateClub,
+                canCreateClub = canCreateClub,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -106,6 +119,16 @@ fun ClubsScreen(
             )
         }
     }
+    if (state.showCreateClub) {
+        CreateClubSheet(
+            state = state,
+            onNameChange = viewModel::setClubName,
+            onDescriptionChange = viewModel::setClubDescription,
+            onTypeChange = viewModel::setClubType,
+            onCreate = { viewModel.createClub() },
+            onDismiss = viewModel::closeCreateClub,
+        )
+    }
 }
 
 @Composable
@@ -115,6 +138,8 @@ private fun ClubsContent(
     onInviteCodeChange: (String) -> Unit,
     onJoinCode: () -> Unit,
     onJoinPublic: (Club) -> Unit,
+    onCreateClub: () -> Unit,
+    canCreateClub: Boolean,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -124,10 +149,23 @@ private fun ClubsContent(
     ) {
         item {
             AnimatedVisibility(visible = true, enter = fadeIn(NbMotion.entryTween()) + slideInVertically(NbMotion.entryTween()) { it / 3 }) {
-                Column(verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
-                    NbPill(label = "Campus groups", contentColor = NbTheme.colors.brandPink)
-                    Text("Find your people", style = MaterialTheme.typography.headlineSmall, color = NbTheme.colors.ink)
-                    Text("Small, focused spaces for the clubs, interests, and communities that make campus feel like yours.", style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                        NbPill(label = "Campus groups", contentColor = NbTheme.colors.brandPink)
+                        Text("Find your people", style = MaterialTheme.typography.headlineSmall, color = NbTheme.colors.ink)
+                        Text("Small, focused spaces for the clubs, interests, and communities that make campus feel like yours.", style = MaterialTheme.typography.bodyMedium, color = NbTheme.colors.inkMuted)
+                    }
+                    IconButton(
+                        onClick = onCreateClub,
+                        enabled = canCreateClub,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(if (canCreateClub) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft)
+                            .semantics { contentDescription = if (canCreateClub) "Create club" else "Verify account to create a club" },
+                    ) {
+                        Icon(NbIcons.Plus, contentDescription = null, tint = if (canCreateClub) androidx.compose.ui.graphics.Color.White else NbTheme.colors.inkFaint)
+                    }
                 }
             }
         }
@@ -145,6 +183,95 @@ private fun ClubsContent(
             items(state.publicClubs, key = { it.id }) { club -> DiscoverClubCard(club, onJoin = { onJoinPublic(club) }) }
         }
         item { Spacer(Modifier.height(NbDimens.space24)) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateClubSheet(
+    state: ClubsUiState,
+    onNameChange: (String) -> Unit,
+    onDescriptionChange: (String) -> Unit,
+    onTypeChange: (String) -> Unit,
+    onCreate: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    NbBottomSheet(onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier.padding(horizontal = NbDimens.space20, vertical = NbDimens.space4),
+            verticalArrangement = Arrangement.spacedBy(NbDimens.space16),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                Text("Create club", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = NbTheme.colors.ink)
+                Text("Start a focused space for your campus community.", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
+            }
+            state.error?.let { message ->
+                Surface(color = NbTheme.colors.brandPink.copy(alpha = 0.08f), shape = RoundedCornerShape(NbDimens.radiusMd)) {
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.brandPink, modifier = Modifier.fillMaxWidth().padding(NbDimens.space12))
+                }
+            }
+            NbTextField(
+                value = state.clubName,
+                onValueChange = onNameChange,
+                label = "Club name",
+                placeholder = "Physics Study Group",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+            )
+            NbTextField(
+                value = state.clubDescription,
+                onValueChange = onDescriptionChange,
+                label = "Description (optional)",
+                placeholder = "What is this club about?",
+                singleLine = false,
+                maxLines = 4,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+                ClubVisibilityOption(
+                    label = "Public",
+                    subtitle = "Discoverable",
+                    selected = state.clubType == "public",
+                    onClick = { onTypeChange("public") },
+                    modifier = Modifier.weight(1f),
+                )
+                ClubVisibilityOption(
+                    label = "Private",
+                    subtitle = "Invite only",
+                    selected = state.clubType == "private",
+                    onClick = { onTypeChange("private") },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            NbButton(
+                text = "Create club",
+                onClick = onCreate,
+                enabled = state.canCreate,
+                loading = state.isCreating,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClubVisibilityOption(
+    label: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = if (selected) NbTheme.colors.brandTeal.copy(alpha = 0.09f) else NbTheme.colors.surfaceSoft,
+        shape = RoundedCornerShape(NbDimens.radiusMd),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) NbTheme.colors.brandTeal else NbTheme.colors.border),
+        modifier = modifier.clip(RoundedCornerShape(NbDimens.radiusMd)).clickable(onClick = onClick),
+    ) {
+        Column(modifier = Modifier.padding(NbDimens.space14), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
+            Icon(if (label == "Public") NbIcons.Home else NbIcons.Shield, contentDescription = null, tint = if (selected) NbTheme.colors.brandTeal else NbTheme.colors.inkMuted, modifier = Modifier.size(20.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, color = if (selected) NbTheme.colors.brandTeal else NbTheme.colors.ink)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+        }
     }
 }
 

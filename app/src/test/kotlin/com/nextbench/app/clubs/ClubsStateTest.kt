@@ -46,4 +46,13 @@ class ClubsStateTest {
         assertTrue(state.isMember("member"))
         assertFalse(state.isMember("outsider"))
     }
+
+    @Test
+    fun `club creation requires a useful name and stable visibility`() {
+        assertFalse(ClubsUiState(clubName = " ").canCreate)
+        assertTrue(ClubsUiState(clubName = "Study group").canCreate)
+        assertTrue(ClubsUiState(clubName = "Study group", clubType = "private").canCreate)
+        assertFalse(ClubsUiState(clubName = "Study group", clubType = "hidden").canCreate)
+        assertFalse(ClubsUiState(clubName = "Study group", isCreating = true).canCreate)
+    }
 }

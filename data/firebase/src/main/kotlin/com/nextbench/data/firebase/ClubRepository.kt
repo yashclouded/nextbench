@@ -72,6 +72,36 @@ class ClubRepository @Inject constructor(
             }
     }
 
+    suspend fun createClub(
+        creator: UserData,
+        name: String,
+        description: String,
+        type: String,
+    ): Result<String> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(creator.uid)
+        require(creator.verified) {
+            "Verify your student account before creating a club."
+        }
+        val normalizedName = name.trim()
+        val normalizedDescription = description.trim()
+        require(normalizedName.length in 2..100) { "Club names must be between 2 and 100 characters." }
+        require(normalizedDescription.length <= 500) { "Club descriptions can be up to 500 characters." }
+        require(type == "public" || type == "private") { "Choose a valid club visibility." }
+
+        val clubRef = refs.clubs.document()
+        clubRef.set(
+            clubCreationPayload(
+                creator = creator,
+                name = normalizedName,
+                description = normalizedDescription,
+                type = type,
+                inviteCode = generateClubInviteCode(),
+            ),
+        ).await()
+        clubRef.id
+    }
+
     suspend fun joinByInviteCode(uid: String, code: String): Result<Club?> = runCatching {
         ensureConfigured()
         requireAuthenticated(uid)
@@ -259,7 +289,50 @@ internal fun Club.clubActivityMillis(): Long =
 internal fun normalizeClubInviteCode(value: String): String =
     value.filterNot(Char::isWhitespace).take(ClubInviteCodeLength)
 
+internal fun clubCreationPayload(
+    creator: UserData,
+    name: String,
+    description: String,
+    type: String,
+    inviteCode: String,
+): Map<String, Any?> = mapOf(
+    "name" to name.trim(),
+    "description" to description.trim(),
+    "avatar" to null,
+    "type" to type,
+    "inviteCode" to inviteCode,
+    "leadId" to creator.uid,
+    "coLeadIds" to emptyList<String>(),
+    "memberIds" to listOf(creator.uid),
+    "settings" to mapOf(
+        "hideMembersAbove50" to false,
+        "onlyLeadsCanPost" to false,
+        "slowMode" to 0,
+        "muteNotifications" to false,
+    ),
+    "memberCount" to 1,
+    "lastMessage" to "",
+    "lastSenderId" to "",
+    "lastSenderName" to "",
+    "createdAt" to FieldValue.serverTimestamp(),
+    "updatedAt" to FieldValue.serverTimestamp(),
+    "school" to creator.school.trim().ifBlank { null },
+    "city" to creator.city.trim().ifBlank { null },
+    "tags" to emptyList<String>(),
+    "unreadBy" to emptyList<String>(),
+    "mutedBy" to emptyList<String>(),
+    "archivedBy" to emptyList<String>(),
+    "pinnedBy" to emptyList<String>(),
+    "deletedBy" to emptyList<String>(),
+)
+
+internal fun generateClubInviteCode(random: kotlin.random.Random = kotlin.random.Random.Default): String =
+    buildString(ClubInviteCodeLength) {
+        repeat(ClubInviteCodeLength) { append(ClubInviteAlphabet[random.nextInt(ClubInviteAlphabet.length)]) }
+    }
+
 internal const val ClubInviteCodeLength = 8
+private const val ClubInviteAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
 
 private class ClubConfigurationException : IllegalStateException(
     "Firebase is not configured for this build. Add app/google-services.json and rebuild.",

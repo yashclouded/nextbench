@@ -28,10 +28,17 @@ data class ClubsUiState(
     val inviteCode: String = "",
     val isLoading: Boolean = true,
     val isJoining: Boolean = false,
+    val showCreateClub: Boolean = false,
+    val clubName: String = "",
+    val clubDescription: String = "",
+    val clubType: String = "public",
+    val isCreating: Boolean = false,
+    val createdClubId: String? = null,
     val error: String? = null,
     val notice: ClubNotice? = null,
 ) {
     val canJoin: Boolean get() = !isJoining && inviteCode.isNotBlank()
+    val canCreate: Boolean get() = !isCreating && clubName.trim().length >= 2 && clubType in setOf("public", "private")
 }
 
 @HiltViewModel
@@ -110,6 +117,63 @@ class ClubsViewModel @Inject constructor(
         }
         return true
     }
+
+    fun openCreateClub() = _state.update { it.copy(showCreateClub = true, error = null) }
+
+    fun closeCreateClub() {
+        if (state.value.isCreating) return
+        _state.update {
+            it.copy(
+                showCreateClub = false,
+                clubName = "",
+                clubDescription = "",
+                clubType = "public",
+                error = null,
+            )
+        }
+    }
+
+    fun setClubName(value: String) = _state.update { it.copy(clubName = value.take(100), error = null) }
+    fun setClubDescription(value: String) = _state.update { it.copy(clubDescription = value.take(500), error = null) }
+    fun setClubType(value: String) = _state.update {
+        it.copy(clubType = value.takeIf { type -> type == "public" || type == "private" } ?: it.clubType, error = null)
+    }
+
+    fun createClub(): Boolean {
+        val creator = viewer ?: return false
+        val snapshot = state.value
+        if (!snapshot.canCreate) return false
+        _state.update { it.copy(isCreating = true, error = null) }
+        viewModelScope.launch {
+            repository.createClub(
+                creator = creator,
+                name = snapshot.clubName,
+                description = snapshot.clubDescription,
+                type = snapshot.clubType,
+            ).fold(
+                onSuccess = { clubId ->
+                    _state.update {
+                        it.copy(
+                            showCreateClub = false,
+                            clubName = "",
+                            clubDescription = "",
+                            clubType = "public",
+                            isCreating = false,
+                            createdClubId = clubId,
+                        )
+                    }
+                    showNotice("Club created.", ClubNoticeKind.Success)
+                },
+                onFailure = { error ->
+                    _state.update { it.copy(isCreating = false, error = error.clubMessage()) }
+                    showNotice(error.clubMessage(), ClubNoticeKind.Error)
+                },
+            )
+        }
+        return true
+    }
+
+    fun consumeCreatedClub() = _state.update { it.copy(createdClubId = null) }
 
     fun retry() {
         val current = viewer
