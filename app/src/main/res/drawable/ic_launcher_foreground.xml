@@ -3,23 +3,33 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- White bench glyph centred in the 108dp adaptive canvas (safe zone ~66dp). -->
-    <group>
-        <!-- backrest -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M38,44 L70,44 L70,49 L38,49 Z" />
-        <!-- seat -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M36,54 L72,54 L72,59 L36,59 Z" />
-        <!-- left leg -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M40,59 L44,59 L44,68 L40,68 Z" />
-        <!-- right leg -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M64,59 L68,59 L68,68 L64,68 Z" />
-    </group>
+    <!-- Simplified single-color version of the website's circular NextBench mark. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,24 A30,30 0,1 1,33,75"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M29,69 L33,76 L40,72"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M40,64 L49,43 L58,61 L68,48"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M64,43 L71,47 L69,55"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7" />
 </vector>

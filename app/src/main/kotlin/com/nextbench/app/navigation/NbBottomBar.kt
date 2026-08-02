@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -39,7 +38,7 @@ import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.pressScale
 
 /**
- * The frosted 5-tab bar. The centre Create tab is a raised gradient pill rather
+ * The frosted 5-tab bar. The centre Create tab is a raised solid action rather
  * than an icon-and-label column, so it reads as an action, not a destination.
  */
 @Composable
@@ -150,9 +149,7 @@ private fun CreateTabItem(
                 .size(width = 52.dp, height = 36.dp)
                 .pressScale(targetScale = 0.90f, onTap = { onSelect(tab) })
                 .clip(RoundedCornerShape(NbDimens.radiusFull))
-                .background(
-                    Brush.horizontalGradient(listOf(colors.brandPink, colors.brandPinkSoft)),
-                )
+                .background(colors.brandPink)
                 .semantics { role = Role.Button },
             contentAlignment = Alignment.Center,
         ) {
