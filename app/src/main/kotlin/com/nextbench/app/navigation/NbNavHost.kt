@@ -457,8 +457,6 @@ fun NbNavHost(
                 InviteScreen(user = (session as? SessionState.SignedIn)?.userData)
             }
         }
-        composable(NbRoute.Admin.path) { GuardedDestination(navController, NbRoute.Admin.path, authViewModel) { PlaceholderScreen(NbIcons.Check, "Admin", "Moderation and verification tools will appear here.") } }
-
         composable(NbRoute.Login.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Login, navController = navController) }
         composable(NbRoute.Signup.path) { AuthScreen(authViewModel = authViewModel, initialMode = com.nextbench.app.auth.OtpMode.Signup, navController = navController) }
         composable(NbRoute.OrgSignup.path) { PlaceholderScreen(NbIcons.Profile, "For organizations", "Create a verified organization profile for your campus.") }

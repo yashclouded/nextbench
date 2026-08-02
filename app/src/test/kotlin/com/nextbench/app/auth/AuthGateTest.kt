@@ -16,7 +16,6 @@ class AuthGateTest {
         assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.Create.path))
         assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.EditItem.path))
         assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.MessagesRoom.path))
-        assertEquals(RouteRequirement.Admin, requirementForRoute(NbRoute.Admin.path))
     }
 
     @Test
@@ -32,20 +31,14 @@ class AuthGateTest {
     }
 
     @Test
-    fun verifiedAndAdminRequirementsUseProfileClaims() {
-        val member = GateSession.SignedIn(verified = false, isAdmin = false)
-        val verified = GateSession.SignedIn(verified = true, isAdmin = false)
-        val admin = GateSession.SignedIn(verified = true, isAdmin = true)
+    fun verifiedRequirementsUseProfileClaims() {
+        val member = GateSession.SignedIn(verified = false)
+        val verified = GateSession.SignedIn(verified = true)
 
         assertEquals(
             GateDecision.Redirect(NbRoute.Verification.path),
             gateDecision(RouteRequirement.Verified, member),
         )
         assertEquals(GateDecision.Allow, gateDecision(RouteRequirement.Verified, verified))
-        assertEquals(
-            GateDecision.Redirect(NbRoute.Feed.path),
-            gateDecision(RouteRequirement.Admin, verified),
-        )
-        assertEquals(GateDecision.Allow, gateDecision(RouteRequirement.Admin, admin))
     }
 }

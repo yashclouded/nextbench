@@ -10,7 +10,7 @@ import com.nextbench.app.navigation.NbRoute
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.data.model.VerificationStatus
 
-enum class RouteRequirement { Public, SignedIn, Verified, Admin }
+enum class RouteRequirement { Public, SignedIn, Verified }
 
 internal sealed interface GateDecision {
     data object Allow : GateDecision
@@ -21,7 +21,7 @@ internal sealed interface GateDecision {
 internal sealed interface GateSession {
     data object Loading : GateSession
     data object SignedOut : GateSession
-    data class SignedIn(val verified: Boolean, val isAdmin: Boolean) : GateSession
+    data class SignedIn(val verified: Boolean) : GateSession
 }
 
 fun requirementForRoute(path: String?): RouteRequirement = when {
@@ -32,7 +32,6 @@ fun requirementForRoute(path: String?): RouteRequirement = when {
     path == NbRoute.Create.path || path == NbRoute.Sell.path || path == NbRoute.Messages.path ||
         path.startsWith("edit-item/") || path.startsWith("messages/") ||
         path.startsWith("chat/") -> RouteRequirement.Verified
-    path == NbRoute.Admin.path -> RouteRequirement.Admin
     else -> RouteRequirement.Public
 }
 
@@ -45,8 +44,6 @@ internal fun gateDecision(
         requirement == RouteRequirement.Public -> GateDecision.Allow
         session == GateSession.Loading -> GateDecision.Wait
         session == GateSession.SignedOut -> GateDecision.Redirect(NbRoute.Login.path)
-        requirement == RouteRequirement.Admin && signedIn?.isAdmin != true ->
-            GateDecision.Redirect(NbRoute.Feed.path)
         requirement == RouteRequirement.Verified && signedIn?.verified != true ->
             GateDecision.Redirect(NbRoute.Verification.path)
         else -> GateDecision.Allow
@@ -58,7 +55,6 @@ private fun SessionState.toGateSession(): GateSession = when (this) {
     SessionState.SignedOut -> GateSession.SignedOut
     is SessionState.SignedIn -> GateSession.SignedIn(
         verified = userData?.verified == true,
-        isAdmin = userData?.isAdmin == true,
     )
 }
 
