@@ -401,7 +401,7 @@ internal fun clubAttachmentPayload(
     put("senderId", sender.uid)
     put("senderName", sender.name.ifBlank { "Student" })
     put("senderAvatar", sender.profilePicture)
-    put("type", kind.type)
+    explicitAttachmentMessageType(kind.type)?.let { put("type", it) }
     put("createdAt", FieldValue.serverTimestamp())
     put("clientMessageId", "android_$messageId")
     put("status", MessageStatus.Sent.raw)

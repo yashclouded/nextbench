@@ -16,6 +16,13 @@ import java.util.Date
 class ChatRepositoryContractTest {
 
     @Test
+    fun `image payloads follow the website schema while rich attachments keep explicit types`() {
+        assertEquals(null, explicitAttachmentMessageType(MessageType.Image.raw))
+        assertEquals(MessageType.Video.raw, explicitAttachmentMessageType(MessageType.Video.raw))
+        assertEquals(MessageType.File.raw, explicitAttachmentMessageType(MessageType.File.raw))
+    }
+
+    @Test
     fun `club documents match the shared web schema`() {
         val typingAt = Timestamp(Date(1_725_000_000_000L))
         val club = mapOf<String, Any?>(

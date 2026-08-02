@@ -79,7 +79,7 @@ class ClubRepositoryContractTest {
             replyTo = Message(id = "message-1", senderName = "Noah", text = "Share the moodboard"),
         )
 
-        assertEquals(MessageType.Image.raw, payload["type"])
+        assertEquals(null, payload["type"])
         assertEquals("Studio references", payload["text"])
         assertEquals("https://cdn/photo.jpg", (payload["image"] as Map<*, *>)["url"])
         assertEquals(1200, (payload["image"] as Map<*, *>)["w"])

@@ -1060,7 +1060,7 @@ private fun attachmentMessagePayload(
     put("senderId", sender.uid)
     put("senderName", sender.name.ifBlank { "Student" })
     put("senderAvatar", sender.profilePicture)
-    put("type", kind.type)
+    explicitAttachmentMessageType(kind.type)?.let { put("type", it) }
     put("createdAt", FieldValue.serverTimestamp())
     put("clientMessageId", "android_$messageId")
     put("status", MessageStatus.Sent.raw)
@@ -1087,6 +1087,9 @@ private fun replyPayload(replyTo: Message?): Map<String, Any?> = replyTo?.let {
 }.orEmpty()
 
 private fun Message.replyPreviewType(): String = MessageType.from(type).raw
+
+internal fun explicitAttachmentMessageType(type: String): String? =
+    MessageType.from(type).raw.takeUnless { it == MessageType.Image.raw }
 
 private fun Message.replyPreviewText(): String = text?.takeIf(String::isNotBlank)
     ?: when (MessageType.from(type)) {
