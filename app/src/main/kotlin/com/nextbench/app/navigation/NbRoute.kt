@@ -50,7 +50,7 @@ sealed class NbRoute(val path: String) {
 
     companion object {
         /** Routes that render the bottom bar. */
-        val topLevel = listOf(Feed, Marketplace, Create, Messages, Profile)
+        val topLevel = listOf(Feed, Search, Create, Messages, Profile)
 
         /** Routes that intentionally render without the authenticated app chrome. */
         val chromeFree = setOf(
@@ -95,7 +95,7 @@ enum class NbTab(
     val isAccent: Boolean = false,
 ) {
     Feed(NbRoute.Feed, "Feed", NbIcons.Home),
-    Marketplace(NbRoute.Marketplace, "Market", NbIcons.Marketplace),
+    Search(NbRoute.Search, "Search", NbIcons.Search),
     Create(NbRoute.Create, "Create", NbIcons.Plus, isAccent = true),
     Messages(NbRoute.Messages, "Chats", NbIcons.Messages),
     Profile(NbRoute.Profile, "You", NbIcons.Profile),

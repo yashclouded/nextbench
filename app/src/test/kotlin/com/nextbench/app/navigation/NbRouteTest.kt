@@ -28,8 +28,10 @@ class NbRouteTest {
 
     @Test
     fun onlyTabsAreTopLevel() {
-        assertTrue(NbRoute.isTopLevel(NbRoute.Marketplace.path))
+        assertTrue(NbRoute.isTopLevel(NbRoute.Search.path))
+        assertFalse(NbRoute.isTopLevel(NbRoute.Marketplace.path))
         assertFalse(NbRoute.isTopLevel(NbRoute.ProductDetail.path))
         assertEquals(NbTab.Profile, NbRoute.tabFor(NbRoute.Profile.path))
+        assertEquals(NbTab.Search, NbRoute.tabFor(NbRoute.Search.path))
     }
 }

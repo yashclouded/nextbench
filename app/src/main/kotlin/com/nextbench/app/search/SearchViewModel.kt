@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class SearchTab { People, Posts, Listings }
+enum class SearchTab { Posts, Books, People }
 
 @Immutable
 data class SearchUiState(
@@ -25,7 +25,7 @@ data class SearchUiState(
     val people: List<UserData> = emptyList(),
     val posts: List<Post> = emptyList(),
     val listings: List<Product> = emptyList(),
-    val selectedTab: SearchTab = SearchTab.People,
+    val selectedTab: SearchTab = SearchTab.Posts,
     val isLoading: Boolean = false,
     val hasSearched: Boolean = false,
     val error: String? = null,

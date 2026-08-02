@@ -56,11 +56,7 @@ fun NbAppShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentPath = backStackEntry?.destination?.route
     val chrome = resolveChrome(currentPath)
-    val selectedTab = if (currentPath == MarketplacePreviewRoute || currentPath == ProductDetailPreviewRoute) {
-        NbTab.Marketplace
-    } else {
-        NbRoute.tabFor(currentPath) ?: NbTab.Feed
-    }
+    val selectedTab = NbRoute.tabFor(currentPath) ?: NbTab.Feed
 
     BackHandler(enabled = chrome.canNavigateBack) {
         navigateBackOrHome(navController)
@@ -180,7 +176,7 @@ private fun NbTopBar(
                         description = "Toggle theme",
                         onClick = onToggleTheme,
                     )
-                } else {
+                } else if (path != NbRoute.Search.path) {
                     NbChromeIconButton(NbIcons.Search, "Search", onSearch)
                 }
                 NbChromeIconButton(NbIcons.Bell, "Notifications", onNotifications)
@@ -201,7 +197,7 @@ internal fun resolveChrome(path: String?): NbChromeState {
     }
 
     val chromeFree = NbRoute.chromeFree.any { it.path == path }
-    val topLevel = NbRoute.isTopLevel(path) || path == MarketplacePreviewRoute
+    val topLevel = NbRoute.isTopLevel(path)
     return NbChromeState(
         showTopBar = !chromeFree,
         showBottomBar = !chromeFree && topLevel,

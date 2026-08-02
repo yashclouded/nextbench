@@ -10,6 +10,7 @@ class AuthGateTest {
     fun routeRequirementsMatchWebsiteAccessPolicy() {
         assertEquals(RouteRequirement.Public, requirementForRoute(NbRoute.Feed.path))
         assertEquals(RouteRequirement.Public, requirementForRoute(NbRoute.Marketplace.path))
+        assertEquals(RouteRequirement.Public, requirementForRoute(NbRoute.Search.path))
         assertEquals(RouteRequirement.SignedIn, requirementForRoute(NbRoute.ProductDetail.path))
         assertEquals(RouteRequirement.SignedIn, requirementForRoute(NbRoute.Profile.path))
         assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.Create.path))

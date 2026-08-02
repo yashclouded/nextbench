@@ -3,8 +3,6 @@ package com.nextbench.app.search
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,13 +14,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -71,54 +75,411 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(user?.uid, user?.school, user?.city) { viewModel.syncViewer(user) }
-    Column(modifier = modifier.fillMaxSize().background(NbTheme.colors.surfaceBase)) {
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(NbTheme.colors.surfaceBase),
+    ) {
         NbTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,
-            placeholder = "Search people, posts, or listings",
+            placeholder = "Search NextBench",
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { viewModel.retry() }),
-            leadingIcon = { Icon(NbIcons.Search, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(20.dp)) },
-            trailingIcon = if (state.query.isNotBlank()) ({ IconButton(onClick = viewModel::clearQuery, modifier = Modifier.semantics { contentDescription = "Clear search" }) { Icon(NbIcons.Close, contentDescription = null, tint = NbTheme.colors.inkMuted) } }) else null,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16, vertical = NbDimens.space12),
+            leadingIcon = {
+                Icon(
+                    NbIcons.Search,
+                    contentDescription = null,
+                    tint = NbTheme.colors.inkMuted,
+                    modifier = Modifier.size(20.dp),
+                )
+            },
+            trailingIcon = if (state.query.isNotBlank()) {
+                {
+                    IconButton(
+                        onClick = viewModel::clearQuery,
+                        modifier = Modifier.semantics { contentDescription = "Clear search" },
+                    ) {
+                        Icon(NbIcons.Close, contentDescription = null, tint = NbTheme.colors.inkMuted)
+                    }
+                }
+            } else {
+                null
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = NbDimens.space16, vertical = NbDimens.space12),
         )
-        SearchTabs(state, viewModel::selectTab)
+
         val error = state.error
         val hasResults = state.people.isNotEmpty() || state.posts.isNotEmpty() || state.listings.isNotEmpty()
         when {
-            state.isLoading && !state.hasSearched -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = NbTheme.colors.brandTeal) }
-            error != null && !hasResults -> NbEmptyState(NbIcons.Refresh, "Search is unavailable", error, modifier = Modifier.fillMaxSize(), action = { Text("Try again", color = NbTheme.colors.brandTeal, modifier = Modifier.clickable(onClick = viewModel::retry).padding(NbDimens.space8)) })
-            else -> SearchResults(state, onOpenProfile, onOpenPost, onOpenListing)
-        }
-    }
-}
+            state.isLoading && !state.hasSearched -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = NbTheme.colors.brandTeal)
+                }
+            }
 
-@Composable
-private fun SearchTabs(state: SearchUiState, onSelect: (SearchTab) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16), horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
-        SearchTab.entries.forEach { tab ->
-            val selected = tab == state.selectedTab
-            Surface(color = if (selected) NbTheme.colors.ink else NbTheme.colors.surfaceCard, shape = RoundedCornerShape(NbDimens.radiusFull), modifier = Modifier.clip(RoundedCornerShape(NbDimens.radiusFull)).clickable(role = Role.Tab) { onSelect(tab) }.semantics { role = Role.Tab; contentDescription = tab.label() }) {
-                Text(tab.labelWithCount(state), style = MaterialTheme.typography.labelMedium, color = if (selected) NbTheme.colors.surfaceBase else NbTheme.colors.inkMuted, modifier = Modifier.padding(horizontal = NbDimens.space12, vertical = NbDimens.space8))
+            error != null && !hasResults -> {
+                NbEmptyState(
+                    icon = NbIcons.Refresh,
+                    title = "Discovery is unavailable",
+                    message = error,
+                    modifier = Modifier.fillMaxSize(),
+                    action = {
+                        Text(
+                            text = "Try again",
+                            color = NbTheme.colors.brandTeal,
+                            modifier = Modifier
+                                .clickable(onClick = viewModel::retry)
+                                .padding(NbDimens.space8),
+                        )
+                    },
+                )
+            }
+
+            state.query.isBlank() -> {
+                DiscoveryResults(
+                    state = state,
+                    onOpenProfile = onOpenProfile,
+                    onOpenPost = onOpenPost,
+                    onOpenListing = onOpenListing,
+                )
+            }
+
+            else -> {
+                SearchTabs(state, viewModel::selectTab)
+                SearchResults(state, onOpenProfile, onOpenPost, onOpenListing)
             }
         }
     }
 }
 
 @Composable
-private fun SearchResults(state: SearchUiState, onOpenProfile: (String) -> Unit, onOpenPost: (String) -> Unit, onOpenListing: (String) -> Unit) {
-    val isEmpty = when (state.selectedTab) { SearchTab.People -> state.people.isEmpty(); SearchTab.Posts -> state.posts.isEmpty(); SearchTab.Listings -> state.listings.isEmpty() }
-    if (isEmpty) {
-        NbEmptyState(NbIcons.Search, if (state.query.isBlank()) "Start exploring" else "Nothing matched", if (state.query.isBlank()) "Search your campus for people, posts, and useful finds." else "Try a different word or search by a member's @username.", modifier = Modifier.fillMaxSize())
+private fun DiscoveryResults(
+    state: SearchUiState,
+    onOpenProfile: (String) -> Unit,
+    onOpenPost: (String) -> Unit,
+    onOpenListing: (String) -> Unit,
+) {
+    val trending = state.posts.sortedWith(
+        compareByDescending<Post> { it.isHot }
+            .thenByDescending { it.upvotesCount + it.repliesCount },
+    )
+    val books = state.listings.filter(Product::looksLikeBook)
+    val featuredListings = (books.ifEmpty { state.listings }).take(10)
+
+    if (trending.isEmpty() && featuredListings.isEmpty() && state.people.isEmpty()) {
+        NbEmptyState(
+            icon = NbIcons.Search,
+            title = "Nothing to discover yet",
+            message = "Fresh campus recommendations will appear here.",
+            modifier = Modifier.fillMaxSize(),
+        )
         return
     }
-    AnimatedContent(targetState = state.selectedTab, transitionSpec = { (slideInHorizontally { it / 8 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 8 } + fadeOut()) }, label = "search_results") { tab ->
-        LazyColumn(contentPadding = PaddingValues(horizontal = NbDimens.space16, vertical = NbDimens.space16), verticalArrangement = Arrangement.spacedBy(NbDimens.space8), modifier = Modifier.fillMaxSize()) {
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = NbDimens.space24),
+        verticalArrangement = Arrangement.spacedBy(NbDimens.space24),
+    ) {
+        if (trending.isNotEmpty()) {
+            item(key = "trending_header") {
+                DiscoveryHeader(
+                    title = "Trending now",
+                    subtitle = "What your campus is talking about",
+                )
+            }
+            trending.take(4).forEachIndexed { index, post ->
+                item(key = "trending_${post.id}") {
+                    TrendingPostRow(
+                        post = post,
+                        rank = index + 1,
+                        onOpen = onOpenPost,
+                    )
+                }
+            }
+        }
+
+        if (featuredListings.isNotEmpty()) {
+            item(key = "books_header") {
+                DiscoveryHeader(
+                    title = if (books.isNotEmpty()) "Books for your bench" else "Recommended finds",
+                    subtitle = "Useful picks from the NextBench community",
+                )
+            }
+            item(key = "books_row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = NbDimens.space16),
+                    horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+                ) {
+                    featuredListings.forEach { product ->
+                        item(key = product.id) {
+                            DiscoveryBookCard(product, onOpenListing)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (state.people.isNotEmpty()) {
+            item(key = "people_header") {
+                DiscoveryHeader(
+                    title = "People to know",
+                    subtitle = "Recommended from your campus and city",
+                )
+            }
+            item(key = "people_row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = NbDimens.space16),
+                    horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+                ) {
+                    state.people.take(12).forEach { person ->
+                        item(key = person.uid) {
+                            DiscoveryPerson(person, onOpenProfile)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryHeader(title: String, subtitle: String) {
+    Column(
+        modifier = Modifier.padding(horizontal = NbDimens.space16),
+        verticalArrangement = Arrangement.spacedBy(NbDimens.space2),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = NbTheme.colors.ink,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = NbTheme.colors.inkMuted,
+        )
+    }
+}
+
+@Composable
+private fun TrendingPostRow(post: Post, rank: Int, onOpen: (String) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen(post.id) }
+            .padding(horizontal = NbDimens.space16),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+    ) {
+        Text(
+            text = rank.toString().padStart(2, '0'),
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = if (rank == 1) NbTheme.colors.brandPink else NbTheme.colors.inkFaint,
+            modifier = Modifier.width(28.dp),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(NbDimens.space4),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = post.authorName.ifBlank { "NextBench member" },
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = NbTheme.colors.inkMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                post.createdAt?.toDate()?.time?.let { createdAt ->
+                    Text(
+                        text = formatRelativeTime(createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NbTheme.colors.inkFaint,
+                    )
+                }
+            }
+            Text(
+                text = post.title.ifBlank { post.content.ifBlank { "Untitled post" } },
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = NbTheme.colors.ink,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${post.upvotesCount} upvotes  ·  ${post.repliesCount} replies",
+                style = MaterialTheme.typography.labelSmall,
+                color = NbTheme.colors.inkMuted,
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(top = NbDimens.space8),
+                color = NbTheme.colors.border,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryBookCard(product: Product, onOpen: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(164.dp)
+            .pressScale(onTap = { onOpen(product.id) }),
+        verticalArrangement = Arrangement.spacedBy(NbDimens.space8),
+    ) {
+        AsyncImage(
+            model = product.images.firstOrNull() ?: product.image,
+            contentDescription = product.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(190.dp)
+                .clip(RoundedCornerShape(NbDimens.radiusSm))
+                .background(NbTheme.colors.surfaceSoft),
+        )
+        Text(
+            text = product.title.ifBlank { "Untitled listing" },
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = NbTheme.colors.ink,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = formatRupees(product.price.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()),
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            color = NbTheme.colors.brandTeal,
+        )
+    }
+}
+
+@Composable
+private fun DiscoveryPerson(user: UserData, onOpen: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(104.dp)
+            .pressScale(onTap = { onOpen(user.uid) }),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(NbDimens.space8),
+    ) {
+        Box(contentAlignment = Alignment.BottomEnd) {
+            NbAvatar(imageUrl = user.profilePicture, name = user.name, size = 72.dp)
+            if (user.verified) {
+                Surface(
+                    color = NbTheme.colors.brandTeal,
+                    shape = CircleShape,
+                    modifier = Modifier.size(20.dp),
+                ) {
+                    Icon(
+                        imageVector = NbIcons.Check,
+                        contentDescription = "Verified",
+                        tint = Color.White,
+                        modifier = Modifier.padding(4.dp),
+                    )
+                }
+            }
+        }
+        Text(
+            text = user.name.ifBlank { "Student" },
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+            color = NbTheme.colors.ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = user.school.ifBlank { user.city.ifBlank { "NextBench" } },
+            style = MaterialTheme.typography.labelSmall,
+            color = NbTheme.colors.inkMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun SearchTabs(state: SearchUiState, onSelect: (SearchTab) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = NbDimens.space16),
+    ) {
+        SearchTab.entries.forEach { tab ->
+            val selected = tab == state.selectedTab
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(role = Role.Tab) { onSelect(tab) }
+                    .semantics {
+                        role = Role.Tab
+                        contentDescription = tab.label()
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = tab.labelWithCount(state),
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    ),
+                    color = if (selected) NbTheme.colors.ink else NbTheme.colors.inkMuted,
+                    modifier = Modifier.padding(vertical = NbDimens.space12),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(if (selected) NbTheme.colors.brandPink else NbTheme.colors.border),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResults(
+    state: SearchUiState,
+    onOpenProfile: (String) -> Unit,
+    onOpenPost: (String) -> Unit,
+    onOpenListing: (String) -> Unit,
+) {
+    val isEmpty = when (state.selectedTab) {
+        SearchTab.Posts -> state.posts.isEmpty()
+        SearchTab.Books -> state.listings.isEmpty()
+        SearchTab.People -> state.people.isEmpty()
+    }
+    if (isEmpty) {
+        NbEmptyState(
+            icon = NbIcons.Search,
+            title = "Nothing matched",
+            message = "Try another name, title, topic, or campus.",
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
+
+    AnimatedContent(
+        targetState = state.selectedTab,
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "search_results",
+    ) { tab ->
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = NbDimens.space16, vertical = NbDimens.space16),
+            verticalArrangement = Arrangement.spacedBy(NbDimens.space8),
+            modifier = Modifier.fillMaxSize(),
+        ) {
             when (tab) {
-                SearchTab.People -> state.people.forEach { person -> item(key = "person_${person.uid}") { PersonRow(person, onOpenProfile) } }
-                SearchTab.Posts -> state.posts.forEach { post -> item(key = "post_${post.id}") { PostRow(post, onOpenPost) } }
-                SearchTab.Listings -> state.listings.forEach { listing -> item(key = "listing_${listing.id}") { ListingRow(listing, onOpenListing) } }
+                SearchTab.Posts -> state.posts.forEach { post ->
+                    item(key = "post_${post.id}") { PostRow(post, onOpenPost) }
+                }
+                SearchTab.Books -> state.listings.forEach { listing ->
+                    item(key = "listing_${listing.id}") { ListingRow(listing, onOpenListing) }
+                }
+                SearchTab.People -> state.people.forEach { person ->
+                    item(key = "person_${person.uid}") { PersonRow(person, onOpenProfile) }
+                }
             }
         }
     }
@@ -126,50 +487,153 @@ private fun SearchResults(state: SearchUiState, onOpenProfile: (String) -> Unit,
 
 @Composable
 private fun PersonRow(user: UserData, onOpen: (String) -> Unit) {
-    Surface(color = NbTheme.colors.surfaceCard, shape = RoundedCornerShape(NbDimens.radiusMd), modifier = Modifier.fillMaxWidth().pressScale(onTap = { onOpen(user.uid) })) {
-        Row(Modifier.padding(NbDimens.space12), verticalAlignment = Alignment.CenterVertically) {
-            NbAvatar(imageUrl = user.profilePicture, name = user.name, size = 52.dp)
-            Column(Modifier.padding(start = NbDimens.space12).weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = user.name.ifBlank { "Student" }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
-                    if (user.verified) { Spacer(Modifier.size(NbDimens.space4)); NbPill("Verified", contentColor = NbTheme.colors.brandTeal) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen(user.uid) }
+            .padding(vertical = NbDimens.space8),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NbAvatar(imageUrl = user.profilePicture, name = user.name, size = 52.dp)
+        Column(
+            modifier = Modifier
+                .padding(start = NbDimens.space12)
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(NbDimens.space2),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = user.name.ifBlank { "Student" },
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = NbTheme.colors.ink,
+                )
+                if (user.verified) {
+                    Spacer(Modifier.size(NbDimens.space4))
+                    NbPill("Verified", contentColor = NbTheme.colors.brandTeal)
                 }
-                Text(text = listOfNotNull(user.username?.let { "@$it" }, user.school.takeIf(String::isNotBlank)).joinToString("  · "), style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Icon(NbIcons.ArrowRight, contentDescription = null, tint = NbTheme.colors.inkFaint)
+            Text(
+                text = listOfNotNull(
+                    user.username?.let { "@$it" },
+                    user.school.takeIf(String::isNotBlank),
+                ).joinToString("  ·  "),
+                style = MaterialTheme.typography.bodySmall,
+                color = NbTheme.colors.inkMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
+        Icon(NbIcons.ArrowRight, contentDescription = null, tint = NbTheme.colors.inkFaint)
     }
 }
 
 @Composable
 private fun PostRow(post: Post, onOpen: (String) -> Unit) {
-    Surface(color = NbTheme.colors.surfaceCard, shape = RoundedCornerShape(NbDimens.radiusMd), modifier = Modifier.fillMaxWidth().pressScale(onTap = { onOpen(post.id) })) {
-        Column(Modifier.padding(NbDimens.space14), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+    Surface(
+        color = NbTheme.colors.surfaceCard,
+        shape = RoundedCornerShape(NbDimens.radiusSm),
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressScale(onTap = { onOpen(post.id) }),
+    ) {
+        Column(
+            modifier = Modifier.padding(NbDimens.space14),
+            verticalArrangement = Arrangement.spacedBy(NbDimens.space8),
+        ) {
             Row {
-                NbPill(post.type.ifBlank { "Post" }.replaceFirstChar(Char::uppercase), contentColor = NbTheme.colors.brandTeal)
+                NbPill(
+                    post.type.ifBlank { "Post" }.replaceFirstChar(Char::uppercase),
+                    contentColor = NbTheme.colors.brandTeal,
+                )
                 Spacer(Modifier.weight(1f))
-                post.createdAt?.toDate()?.time?.let { Text(text = formatRelativeTime(it), style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkFaint) }
+                post.createdAt?.toDate()?.time?.let { createdAt ->
+                    Text(
+                        text = formatRelativeTime(createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NbTheme.colors.inkFaint,
+                    )
+                }
             }
-            Text(text = post.title.ifBlank { post.content.ifBlank { "Untitled post" } }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(text = listOfNotNull(post.school.takeIf(String::isNotBlank), "${post.repliesCount} replies").joinToString("  ·  "), style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+            Text(
+                text = post.title.ifBlank { post.content.ifBlank { "Untitled post" } },
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = NbTheme.colors.ink,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = listOfNotNull(
+                    post.school.takeIf(String::isNotBlank),
+                    "${post.repliesCount} replies",
+                ).joinToString("  ·  "),
+                style = MaterialTheme.typography.labelSmall,
+                color = NbTheme.colors.inkMuted,
+            )
         }
     }
 }
 
 @Composable
 private fun ListingRow(product: Product, onOpen: (String) -> Unit) {
-    Surface(color = NbTheme.colors.surfaceCard, shape = RoundedCornerShape(NbDimens.radiusMd), modifier = Modifier.fillMaxWidth().pressScale(onTap = { onOpen(product.id) })) {
-        Row(Modifier.padding(NbDimens.space12), verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(model = product.images.firstOrNull() ?: product.image, contentDescription = product.title, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.size(66.dp).clip(RoundedCornerShape(NbDimens.radiusSm)))
-            Column(Modifier.padding(start = NbDimens.space12).weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
-                Text(text = product.title.ifBlank { "Untitled listing" }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(text = formatRupees(product.price.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()), style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold), color = NbTheme.colors.ink)
-                Text(text = product.category, style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
-            }
-            Icon(NbIcons.ArrowRight, contentDescription = null, tint = NbTheme.colors.inkFaint)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen(product.id) }
+            .padding(vertical = NbDimens.space8),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = product.images.firstOrNull() ?: product.image,
+            contentDescription = product.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(72.dp)
+                .clip(RoundedCornerShape(NbDimens.radiusSm))
+                .background(NbTheme.colors.surfaceSoft),
+        )
+        Column(
+            modifier = Modifier
+                .padding(start = NbDimens.space12)
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(NbDimens.space4),
+        ) {
+            Text(
+                text = product.title.ifBlank { "Untitled listing" },
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = NbTheme.colors.ink,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = formatRupees(product.price.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()),
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                color = NbTheme.colors.brandTeal,
+            )
+            Text(
+                text = product.category.ifBlank { product.condition },
+                style = MaterialTheme.typography.labelSmall,
+                color = NbTheme.colors.inkMuted,
+            )
         }
+        Icon(NbIcons.ArrowRight, contentDescription = null, tint = NbTheme.colors.inkFaint)
     }
 }
 
-private fun SearchTab.label() = when (this) { SearchTab.People -> "People"; SearchTab.Posts -> "Posts"; SearchTab.Listings -> "Listings" }
-private fun SearchTab.labelWithCount(state: SearchUiState) = when (this) { SearchTab.People -> "People ${state.people.size}"; SearchTab.Posts -> "Posts ${state.posts.size}"; SearchTab.Listings -> "Listings ${state.listings.size}" }
+private fun Product.looksLikeBook(): Boolean {
+    val searchable = "$title $category $description".lowercase()
+    return BookKeywords.any(searchable::contains)
+}
+
+private val BookKeywords = listOf("book", "textbook", "novel", "notes", "guide", "exam", "course")
+
+private fun SearchTab.label() = when (this) {
+    SearchTab.Posts -> "Posts"
+    SearchTab.Books -> "Books"
+    SearchTab.People -> "People"
+}
+
+private fun SearchTab.labelWithCount(state: SearchUiState) = when (this) {
+    SearchTab.Posts -> "Posts ${state.posts.size}"
+    SearchTab.Books -> "Books ${state.listings.size}"
+    SearchTab.People -> "People ${state.people.size}"
+}
