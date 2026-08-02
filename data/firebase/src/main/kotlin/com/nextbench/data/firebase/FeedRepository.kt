@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.nextbench.data.model.Poll
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.PostImage
+import com.nextbench.data.model.Product
 import java.util.Date
 import javax.inject.Inject
 import javax.inject.Provider
@@ -29,8 +30,15 @@ data class FeedCursor(
 
 data class FeedPage(
     val posts: List<Post>,
+    val products: List<Product>,
+    val order: List<FeedOrderEntry>,
     val nextCursor: FeedCursor,
     val hasMorePosts: Boolean,
+)
+
+data class FeedOrderEntry(
+    val id: String,
+    val type: String,
 )
 
 data class FeedInteractions(
@@ -176,6 +184,12 @@ internal fun discoveryPayload(mode: FeedMode, cursor: FeedCursor?): Map<String, 
 
 internal fun Map<String, Any?>.toFeedPage(): FeedPage = FeedPage(
     posts = mapList("posts").mapNotNull(Map<String, Any?>::toPost),
+    products = mapList("products").mapNotNull(Map<String, Any?>::toProduct),
+    order = mapList("order").mapNotNull { item ->
+        val id = item.string("id")
+        val type = item.string("type")
+        FeedOrderEntry(id = id, type = type).takeIf { id.isNotBlank() && type in FeedOrderTypes }
+    },
     nextCursor = this["nextCursor"].asStringMap().let { cursor ->
         FeedCursor(
             postCreatedAt = cursor.long("postCreatedAt"),
@@ -183,8 +197,11 @@ internal fun Map<String, Any?>.toFeedPage(): FeedPage = FeedPage(
             cursorIndex = cursor.int("cursorIndex"),
         )
     },
-    hasMorePosts = this["hasMorePosts"] as? Boolean ?: false,
+    hasMorePosts = (this["hasMorePosts"] as? Boolean ?: false) ||
+        (this["hasMoreProducts"] as? Boolean ?: false),
 )
+
+private val FeedOrderTypes = setOf("post", "product")
 
 internal fun Map<String, Any?>.toPost(): Post? {
     val id = string("id")

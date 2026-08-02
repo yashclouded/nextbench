@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.FeedCursor
 import com.nextbench.data.firebase.FeedMode
+import com.nextbench.data.firebase.FeedOrderEntry
 import com.nextbench.data.firebase.FeedRepository
 import com.nextbench.data.firebase.PostVote
 import com.nextbench.data.model.Post
+import com.nextbench.data.model.Product
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -39,6 +41,8 @@ data class FeedNotice(
 @Immutable
 data class FeedUiState(
     val posts: List<Post> = emptyList(),
+    val products: List<Product> = emptyList(),
+    val feedOrder: List<FeedOrderEntry> = emptyList(),
     val mode: FeedMode = FeedMode.ForYou,
     val displayMode: FeedDisplayMode = FeedDisplayMode.Editorial,
     val upvotedPostIds: Set<String> = emptySet(),
@@ -109,10 +113,12 @@ class FeedViewModel @Inject constructor(
         pageJob?.cancel()
         cursor = null
         val generation = ++contentGeneration
-        val hasContent = !clearContent && state.value.posts.isNotEmpty()
+        val hasContent = !clearContent && (state.value.posts.isNotEmpty() || state.value.products.isNotEmpty())
         _state.update {
             it.copy(
                 posts = if (clearContent) emptyList() else it.posts,
+                products = if (clearContent) emptyList() else it.products,
+                feedOrder = if (clearContent) emptyList() else it.feedOrder,
                 isInitialLoading = !hasContent,
                 isRefreshing = hasContent,
                 isLoadingMore = false,
@@ -125,10 +131,15 @@ class FeedViewModel @Inject constructor(
                 onSuccess = { page ->
                     if (generation != contentGeneration) return@fold
                     val posts = if (viewer.signedIn) page.posts else page.posts.take(GuestPreviewLimit)
+                    val products = if (viewer.signedIn) page.products else page.products.take(GuestProductPreviewLimit)
                     cursor = page.nextCursor
                     _state.update {
                         it.copy(
                             posts = posts.distinctBy(Post::id),
+                            products = products.distinctBy(Product::id),
+                            feedOrder = page.order.filter { entry ->
+                                posts.any { it.id == entry.id } || products.any { it.id == entry.id }
+                            },
                             isInitialLoading = false,
                             isRefreshing = false,
                             hasMore = viewer.signedIn && page.hasMorePosts,
@@ -170,8 +181,11 @@ class FeedViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             posts = mergePosts(it.posts, page.posts),
+                            products = mergeProducts(it.products, page.products),
+                            feedOrder = mergeFeedOrder(it.feedOrder, page.order),
                             isLoadingMore = false,
-                            hasMore = page.hasMorePosts && (cursorAdvanced || page.posts.isNotEmpty()),
+                            hasMore = page.hasMorePosts &&
+                                (cursorAdvanced || page.posts.isNotEmpty() || page.products.isNotEmpty()),
                             paginationError = false,
                         )
                     }
@@ -392,6 +406,14 @@ internal fun previewVote(
 internal fun mergePosts(current: List<Post>, incoming: List<Post>): List<Post> =
     (current + incoming).distinctBy(Post::id)
 
+internal fun mergeProducts(current: List<Product>, incoming: List<Product>): List<Product> =
+    (current + incoming).distinctBy(Product::id)
+
+internal fun mergeFeedOrder(
+    current: List<FeedOrderEntry>,
+    incoming: List<FeedOrderEntry>,
+): List<FeedOrderEntry> = (current + incoming).distinctBy { "${it.type}:${it.id}" }
+
 private fun Boolean.toInt(): Int = if (this) 1 else 0
 
 private fun Set<String>.withMembership(id: String, present: Boolean): Set<String> =
@@ -444,3 +466,4 @@ private fun Throwable.feedMessage(): String {
 }
 
 private const val GuestPreviewLimit = 5
+private const val GuestProductPreviewLimit = 2

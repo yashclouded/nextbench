@@ -1,7 +1,9 @@
 package com.nextbench.app.feed
 
 import com.nextbench.data.firebase.PostVote
+import com.nextbench.data.firebase.FeedOrderEntry
 import com.nextbench.data.model.Post
+import com.nextbench.data.model.Product
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -69,6 +71,75 @@ class FeedViewModelTest {
 
         assertEquals(listOf("one", "two", "three"), merged.map(Post::id))
         assertEquals("old", merged[1].title)
+    }
+
+    @Test
+    fun `product and mixed order merges preserve server sequence`() {
+        val products = mergeProducts(
+            current = listOf(Product(id = "book-1", title = "Old")),
+            incoming = listOf(Product(id = "book-1", title = "New"), Product(id = "book-2")),
+        )
+        val order = mergeFeedOrder(
+            current = listOf(FeedOrderEntry("post-1", "post")),
+            incoming = listOf(
+                FeedOrderEntry("book-1", "product"),
+                FeedOrderEntry("post-1", "post"),
+            ),
+        )
+
+        assertEquals(listOf("book-1", "book-2"), products.map(Product::id))
+        assertEquals("Old", products.first().title)
+        assertEquals(listOf("post-1", "book-1"), order.map(FeedOrderEntry::id))
+    }
+
+    @Test
+    fun `feed content follows callable order and appends hydrated extras`() {
+        val content = buildFeedContent(
+            posts = listOf(Post(id = "post-1"), Post(id = "post-2")),
+            products = listOf(Product(id = "book-1")),
+            order = listOf(
+                FeedOrderEntry("book-1", "product"),
+                FeedOrderEntry("post-1", "post"),
+            ),
+        )
+
+        assertEquals(
+            listOf("product:book-1", "post:post-1", "post:post-2"),
+            content.map(FeedContent::key),
+        )
+    }
+
+    @Test
+    fun `feed content spaces products through chronological fallback`() {
+        val content = buildFeedContent(
+            posts = (1..5).map { Post(id = "post-$it") },
+            products = listOf(Product(id = "book-1"), Product(id = "book-2")),
+            order = emptyList(),
+        )
+
+        assertEquals(
+            listOf(
+                "post:post-1",
+                "post:post-2",
+                "post:post-3",
+                "post:post-4",
+                "product:book-1",
+                "post:post-5",
+                "product:book-2",
+            ),
+            content.map(FeedContent::key),
+        )
+    }
+
+    @Test
+    fun `fallback does not let listings overwhelm a short social feed`() {
+        val content = buildFeedContent(
+            posts = listOf(Post(id = "post-1")),
+            products = (1..5).map { Product(id = "book-$it") },
+            order = emptyList(),
+        )
+
+        assertEquals(listOf("post:post-1", "product:book-1"), content.map(FeedContent::key))
     }
 
     @Test

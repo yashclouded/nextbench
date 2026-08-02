@@ -1,6 +1,11 @@
 package com.nextbench.app
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -18,7 +23,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +48,7 @@ import com.nextbench.app.marketplace.ProductDetailPreviewRoute
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbLogo
+import com.nextbench.core.designsystem.NbMotion
 import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.pressScale
 
@@ -57,6 +67,11 @@ fun NbAppShell(
     val currentPath = backStackEntry?.destination?.route
     val chrome = resolveChrome(currentPath)
     val selectedTab = NbRoute.tabFor(currentPath) ?: NbTab.Feed
+    var feedChromeVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(currentPath) {
+        if (currentPath != NbRoute.Feed.path) feedChromeVisible = true
+    }
+    val showAnimatedChrome = currentPath != NbRoute.Feed.path || feedChromeVisible
 
     BackHandler(enabled = chrome.canNavigateBack) {
         navigateBackOrHome(navController)
@@ -68,7 +83,11 @@ fun NbAppShell(
             .background(NbTheme.colors.surfaceBase),
         containerColor = NbTheme.colors.surfaceBase,
         topBar = {
-            if (chrome.showTopBar) {
+            AnimatedVisibility(
+                visible = chrome.showTopBar && showAnimatedChrome,
+                enter = slideInVertically(NbMotion.interactionTween()) { -it } + fadeIn(NbMotion.interactionTween()),
+                exit = slideOutVertically(NbMotion.interactionTween()) { -it } + fadeOut(NbMotion.interactionTween()),
+            ) {
                 NbTopBar(
                     path = currentPath,
                     canNavigateBack = chrome.canNavigateBack,
@@ -80,7 +99,11 @@ fun NbAppShell(
             }
         },
         bottomBar = {
-            if (chrome.showBottomBar) {
+            AnimatedVisibility(
+                visible = chrome.showBottomBar && showAnimatedChrome,
+                enter = slideInVertically(NbMotion.interactionTween()) { it } + fadeIn(NbMotion.interactionTween()),
+                exit = slideOutVertically(NbMotion.interactionTween()) { it } + fadeOut(NbMotion.interactionTween()),
+            ) {
                 NbBottomBar(
                     selected = selectedTab,
                     onSelect = navController::navigateToTab,
@@ -92,6 +115,9 @@ fun NbAppShell(
             navController = navController,
             authViewModel = authViewModel,
             onToggleTheme = onToggleTheme,
+            onFeedChromeVisibilityChanged = { visible ->
+                if (currentPath == NbRoute.Feed.path) feedChromeVisible = visible
+            },
             modifier = Modifier.padding(innerPadding),
         )
     }

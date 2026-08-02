@@ -46,6 +46,20 @@ class FeedRepositoryContractTest {
                     ),
                 ),
             ),
+            "products" to listOf(
+                mapOf(
+                    "id" to "book-1",
+                    "title" to "Operating Systems",
+                    "price" to 450L,
+                    "category" to "Education",
+                    "status" to "available",
+                ),
+            ),
+            "order" to listOf(
+                mapOf("id" to "post-1", "type" to "post"),
+                mapOf("id" to "book-1", "type" to "product"),
+                mapOf("id" to "ignored", "type" to "unknown"),
+            ),
             "nextCursor" to mapOf("postCreatedAt" to 1_699_000_000_000L),
             "hasMorePosts" to true,
         ).toFeedPage()
@@ -58,6 +72,8 @@ class FeedRepositoryContractTest {
         assertEquals(4, post.pdfPages)
         assertEquals("https://cdn/clip.mp4", post.videoUrl)
         assertEquals(mapOf("0" to 3, "1" to 1), post.poll?.votes)
+        assertEquals("book-1", page.products.single().id)
+        assertEquals(listOf("post-1", "book-1"), page.order.map(FeedOrderEntry::id))
         assertEquals(1_699_000_000_000L, page.nextCursor.postCreatedAt)
         assertTrue(page.hasMorePosts)
     }
@@ -70,8 +86,22 @@ class FeedRepositoryContractTest {
         ).toFeedPage()
 
         assertEquals(listOf("valid"), page.posts.map { it.id })
+        assertTrue(page.products.isEmpty())
+        assertTrue(page.order.isEmpty())
         assertNull(page.posts.single().createdAt)
         assertFalse(page.hasMorePosts)
+    }
+
+    @Test
+    fun `product pagination keeps the mixed feed open when posts are exhausted`() {
+        val page = mapOf<String, Any?>(
+            "posts" to emptyList<Any>(),
+            "products" to listOf(mapOf("id" to "book-1")),
+            "hasMorePosts" to false,
+            "hasMoreProducts" to true,
+        ).toFeedPage()
+
+        assertTrue(page.hasMorePosts)
     }
 
     @Test

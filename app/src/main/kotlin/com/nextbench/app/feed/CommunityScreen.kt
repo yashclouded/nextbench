@@ -44,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -56,6 +57,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import com.nextbench.core.common.formatRelativeTime
+import com.nextbench.core.common.formatRupees
 import com.nextbench.core.designsystem.NbAvatar
 import com.nextbench.core.designsystem.NbBottomSheet
 import com.nextbench.core.designsystem.NbButton
@@ -90,15 +93,71 @@ import com.nextbench.core.designsystem.NbPill
 import com.nextbench.core.designsystem.NbSkeletonBox
 import com.nextbench.core.designsystem.NbSkeletonLine
 import com.nextbench.core.designsystem.NbTheme
+import com.nextbench.core.designsystem.pressScale
 import com.nextbench.data.firebase.FeedMode
+import com.nextbench.data.firebase.FeedOrderEntry
 import com.nextbench.data.firebase.PostVote
 import com.nextbench.data.model.Poll
 import com.nextbench.data.model.Post
+import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private enum class FeedAccessRequest { SignIn, Verify }
+
+private data class ScrollPosition(val index: Int, val offset: Int)
+
+internal sealed interface FeedContent {
+    val key: String
+    val type: String
+
+    data class PostItem(val post: Post) : FeedContent {
+        override val key = "post:${post.id}"
+        override val type = "post:${post.type}"
+    }
+
+    data class ProductItem(val product: Product) : FeedContent {
+        override val key = "product:${product.id}"
+        override val type = "product"
+    }
+}
+
+internal fun buildFeedContent(
+    posts: List<Post>,
+    products: List<Product>,
+    order: List<FeedOrderEntry>,
+): List<FeedContent> {
+    val postsById = posts.associateBy(Post::id)
+    val productsById = products.associateBy(Product::id)
+    val ordered = order.mapNotNull { entry ->
+        when (entry.type) {
+            "post" -> postsById[entry.id]?.let(FeedContent::PostItem)
+            "product" -> productsById[entry.id]?.let(FeedContent::ProductItem)
+            else -> null
+        }
+    }
+    if (ordered.isNotEmpty()) {
+        val orderedKeys = ordered.mapTo(mutableSetOf(), FeedContent::key)
+        return ordered + posts.map(FeedContent::PostItem).filterNot { it.key in orderedKeys } +
+            products.map(FeedContent::ProductItem).filterNot { it.key in orderedKeys }
+    }
+
+    if (posts.isEmpty()) return products.map(FeedContent::ProductItem)
+
+    val mixed = mutableListOf<FeedContent>()
+    val productLimit = ((posts.size + ProductInterval - 1) / ProductInterval).coerceAtLeast(1)
+    val productIterator = products.take(productLimit).iterator()
+    posts.forEachIndexed { index, post ->
+        mixed += FeedContent.PostItem(post)
+        if ((index + 1) % ProductInterval == 0 && productIterator.hasNext()) {
+            mixed += FeedContent.ProductItem(productIterator.next())
+        }
+    }
+    while (productIterator.hasNext()) mixed += FeedContent.ProductItem(productIterator.next())
+    return mixed
+}
 
 @Composable
 fun CommunityScreen(
@@ -107,6 +166,8 @@ fun CommunityScreen(
     onOpenProfile: (String) -> Unit,
     onSignIn: () -> Unit,
     onVerify: () -> Unit,
+    onOpenProduct: (String) -> Unit,
+    onChromeVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: FeedViewModel = hiltViewModel(),
     storyViewModel: StoryViewModel = hiltViewModel(),
@@ -126,6 +187,30 @@ fun CommunityScreen(
     LaunchedEffect(viewer) { viewModel.syncViewer(viewer) }
     LaunchedEffect(viewer.uid) { storyViewModel.syncUser(viewer.uid) }
     LaunchedEffect(state.mode) { listState.scrollToItem(0) }
+    LaunchedEffect(listState) {
+        var previousIndex = 0
+        var previousOffset = 0
+        snapshotFlow {
+            ScrollPosition(
+                index = listState.firstVisibleItemIndex,
+                offset = listState.firstVisibleItemScrollOffset,
+            )
+        }
+            .distinctUntilChanged()
+            .collect { position ->
+                val atTop = position.index == 0 && position.offset < ChromeRevealThresholdPx
+                val scrollingDown = position.index > previousIndex ||
+                    (position.index == previousIndex && position.offset > previousOffset)
+                val scrollingUp = position.index < previousIndex ||
+                    (position.index == previousIndex && position.offset < previousOffset)
+                when {
+                    atTop || scrollingUp -> onChromeVisibilityChanged(true)
+                    scrollingDown -> onChromeVisibilityChanged(false)
+                }
+                previousIndex = position.index
+                previousOffset = position.offset
+            }
+    }
 
     CommunityContent(
         state = state,
@@ -142,6 +227,7 @@ fun CommunityScreen(
         onLoadMore = viewModel::loadMore,
         onOpenPost = onOpenPost,
         onOpenProfile = onOpenProfile,
+        onOpenProduct = onOpenProduct,
         onVote = { postId, vote, doubleTap ->
             when {
                 !viewer.signedIn -> {
@@ -236,6 +322,92 @@ fun CommunityScreen(
     }
 }
 
+@Composable
+private fun FeedProductCard(
+    product: Product,
+    compact: Boolean,
+    onOpen: () -> Unit,
+    onOpenProfile: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val imageUrl = product.images.firstOrNull() ?: product.image
+    val category = product.category.ifBlank { "Campus find" }
+    Surface(
+        color = NbTheme.colors.surfaceCard,
+        shape = RoundedCornerShape(NbDimens.radiusSm),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = if (compact) NbDimens.space16 else NbDimens.space12,
+                vertical = NbDimens.space8,
+            )
+            .pressScale(onTap = onOpen),
+    ) {
+        Row(
+            modifier = Modifier.padding(NbDimens.space12),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+        ) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = product.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(if (compact) 82.dp else 112.dp)
+                    .clip(RoundedCornerShape(NbDimens.radiusSm))
+                    .background(NbTheme.colors.surfaceSoft),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(NbDimens.space8),
+            ) {
+                Text(
+                    text = if (product.looksLikeBook()) "BOOKS ON NEXTBENCH" else "FROM NEXTBENCH MARKET",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = NbTheme.colors.brandPink,
+                )
+                Text(
+                    text = product.title.ifBlank { "Untitled listing" },
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = NbTheme.colors.ink,
+                    maxLines = if (compact) 2 else 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = formatRupees(product.price.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = NbTheme.colors.brandTeal,
+                    )
+                    Text(
+                        text = "  ·  $category",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NbTheme.colors.inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (!compact && product.sellerName.isNotBlank()) {
+                    Text(
+                        text = "Listed by ${product.sellerName}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NbTheme.colors.inkMuted,
+                        modifier = Modifier.clickable(onClick = onOpenProfile),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Icon(
+                imageVector = NbIcons.ArrowRight,
+                contentDescription = null,
+                tint = NbTheme.colors.inkFaint,
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun CommunityContent(
@@ -250,6 +422,7 @@ private fun CommunityContent(
     onLoadMore: () -> Unit,
     onOpenPost: (String) -> Unit,
     onOpenProfile: (String) -> Unit,
+    onOpenProduct: (String) -> Unit,
     onVote: (String, PostVote, Boolean) -> Boolean,
     onSave: (String) -> Unit,
     onRequestSignIn: () -> Unit,
@@ -260,8 +433,11 @@ private fun CommunityContent(
     modifier: Modifier = Modifier,
 ) {
     val pullState = rememberPullToRefreshState()
+    val feedItems = remember(state.posts, state.products, state.feedOrder) {
+        buildFeedContent(state.posts, state.products, state.feedOrder)
+    }
     val shouldLoadMore = remember(
-        state.posts.size,
+        feedItems.size,
         state.hasMore,
         state.isLoadingMore,
         state.interactionsReady,
@@ -269,10 +445,9 @@ private fun CommunityContent(
     ) {
         androidx.compose.runtime.derivedStateOf {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val leadingItems = if (viewer.signedIn && !state.interactionsReady) 1 else 0
-            val lastPostIndex = leadingItems + state.posts.lastIndex
-            state.posts.isNotEmpty() && state.hasMore && !state.isLoadingMore &&
-                lastVisible >= lastPostIndex - PaginationThreshold
+            val totalItems = listState.layoutInfo.totalItemsCount
+            feedItems.isNotEmpty() && state.hasMore && !state.isLoadingMore &&
+                lastVisible >= totalItems - PaginationThreshold
         }
     }
     LaunchedEffect(shouldLoadMore.value) {
@@ -287,58 +462,66 @@ private fun CommunityContent(
             .fillMaxSize()
             .background(NbTheme.colors.surfaceBase),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = NbDimens.space24),
+        ) {
             if (viewer.signedIn && user != null) {
-                StoriesTray(
-                    user = user,
-                    state = storyState,
-                    onOpen = onOpenStory,
-                    onAdd = onAddStory,
-                    onRetry = onRetryStories,
-                )
+                item(key = "stories", contentType = "stories") {
+                    StoriesTray(
+                        user = user,
+                        state = storyState,
+                        onOpen = onOpenStory,
+                        onAdd = onAddStory,
+                        onRetry = onRetryStories,
+                    )
+                }
             }
             if (viewer.signedIn) {
-                FeedModeBar(
-                    mode = state.mode,
-                    displayMode = state.displayMode,
-                    onSelectMode = onSelectMode,
-                    onSelectDisplayMode = onSelectDisplayMode,
-                )
+                item(key = "feed_controls", contentType = "feed_controls") {
+                    FeedModeBar(
+                        mode = state.mode,
+                        displayMode = state.displayMode,
+                        onSelectMode = onSelectMode,
+                        onSelectDisplayMode = onSelectDisplayMode,
+                    )
+                }
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                when {
-                    state.isInitialLoading -> FeedLoading()
-                    state.initialError != null && state.posts.isEmpty() -> FeedError(
+
+            if (viewer.signedIn && !state.interactionsReady) {
+                item(key = "interaction_status") {
+                    InteractionStatus(
+                        loading = state.isLoadingInteractions,
+                        onRetry = onRetryInteractions,
+                    )
+                }
+            }
+
+            when {
+                state.isInitialLoading -> items(3, key = { "feed_skeleton_$it" }) {
+                    FeedSkeletonCard()
+                }
+                state.initialError != null && feedItems.isEmpty() -> item(key = "feed_error") {
+                    FeedError(
                         message = state.initialError,
                         onRetry = onRefresh,
                     )
-                    state.posts.isEmpty() -> FeedEmpty(
+                }
+                feedItems.isEmpty() -> item(key = "feed_empty") {
+                    FeedEmpty(
                         following = state.mode == FeedMode.Following,
                         onRefresh = onRefresh,
                     )
-                    else -> LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = NbDimens.space24),
-                    ) {
-                        if (viewer.signedIn && !state.interactionsReady) {
-                            item(key = "interaction_status") {
-                                InteractionStatus(
-                                    loading = state.isLoadingInteractions,
-                                    onRetry = onRetryInteractions,
-                                )
-                            }
-                        }
-
-                        itemsIndexed(
-                            items = state.posts,
-                            key = { _, post -> post.id },
-                            contentType = { _, post -> "${state.displayMode}:${post.type}" },
-                        ) { index, post ->
+                }
+                else -> itemsIndexed(
+                    items = feedItems,
+                    key = { _, item -> item.key },
+                    contentType = { _, item -> "${state.displayMode}:${item.type}" },
+                ) { index, item ->
+                    when (item) {
+                        is FeedContent.PostItem -> {
+                            val post = item.post
                             val interactionsEnabled = !viewer.signedIn ||
                                 (state.interactionsReady && post.id !in state.busyPostIds)
                             val onProfileClick = {
@@ -372,21 +555,30 @@ private fun CommunityContent(
                                 )
                             }
                         }
-
-                        if (!viewer.signedIn) {
-                            item(key = "guest_preview") {
-                                GuestPreviewFooter(onSignIn = onRequestSignIn)
-                            }
-                        }
-
-                        if (state.isLoadingMore) {
-                            item(key = "load_more") { FeedLoadingMore() }
-                        } else if (state.paginationError) {
-                            item(key = "load_more_retry") {
-                                FeedPaginationRetry(onRetry = onLoadMore)
-                            }
-                        }
+                        is FeedContent.ProductItem -> FeedProductCard(
+                            product = item.product,
+                            compact = state.displayMode == FeedDisplayMode.List,
+                            onOpen = { onOpenProduct(item.product.id) },
+                            onOpenProfile = {
+                                item.product.sellerId.takeIf(String::isNotBlank)?.let(onOpenProfile)
+                            },
+                            modifier = Modifier.animateItem(),
+                        )
                     }
+                }
+            }
+
+            if (!viewer.signedIn && feedItems.isNotEmpty()) {
+                item(key = "guest_preview") {
+                    GuestPreviewFooter(onSignIn = onRequestSignIn)
+                }
+            }
+
+            if (state.isLoadingMore) {
+                item(key = "load_more") { FeedLoadingMore() }
+            } else if (state.paginationError) {
+                item(key = "load_more_retry") {
+                    FeedPaginationRetry(onRetry = onLoadMore)
                 }
             }
         }
@@ -1500,7 +1692,15 @@ private fun postTypeLabel(type: String): String = when (type) {
     else -> "Discussion"
 }
 
+private fun Product.looksLikeBook(): Boolean {
+    val searchable = "$title $category $description".lowercase()
+    return FeedBookKeywords.any(searchable::contains)
+}
+
 private const val ContentPreviewLines = 7
 private const val MaxPollChoices = 6
 private const val MaxMediaDots = 8
 private const val PaginationThreshold = 4
+private const val ProductInterval = 4
+private const val ChromeRevealThresholdPx = 12
+private val FeedBookKeywords = listOf("book", "textbook", "novel", "notes", "guide", "exam", "course")

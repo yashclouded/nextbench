@@ -80,6 +80,7 @@ fun NbNavHost(
     navController: NavHostController,
     authViewModel: AuthViewModel,
     onToggleTheme: () -> Unit,
+    onFeedChromeVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val session by authViewModel.session.collectAsStateWithLifecycle()
@@ -113,6 +114,10 @@ fun NbNavHost(
                 onOpenProfile = { userId ->
                     navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true }
                 },
+                onOpenProduct = { productId ->
+                    navController.navigate(NbRoute.product(productId)) { launchSingleTop = true }
+                },
+                onChromeVisibilityChanged = onFeedChromeVisibilityChanged,
                 onSignIn = {
                     navController.navigate(NbRoute.Login.path) { launchSingleTop = true }
                 },
