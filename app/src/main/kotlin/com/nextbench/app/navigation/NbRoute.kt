@@ -11,6 +11,7 @@ import com.nextbench.core.designsystem.NbIcons
 sealed class NbRoute(val path: String) {
 
     data object Splash : NbRoute("splash")
+    data object Onboarding : NbRoute("onboarding")
 
     data object Feed : NbRoute("community")
     data object Marketplace : NbRoute("marketplace")
@@ -52,6 +53,7 @@ sealed class NbRoute(val path: String) {
         /** Routes that intentionally render without the authenticated app chrome. */
         val chromeFree = setOf(
             Splash,
+            Onboarding,
             Login,
             Signup,
             OrgSignup,

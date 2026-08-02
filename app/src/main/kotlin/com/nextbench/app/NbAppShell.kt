@@ -47,6 +47,7 @@ import com.nextbench.app.navigation.navigateToTab
 import com.nextbench.app.auth.AuthViewModel
 import com.nextbench.app.marketplace.MarketplacePreviewRoute
 import com.nextbench.app.marketplace.ProductDetailPreviewRoute
+import com.nextbench.app.onboarding.OnboardingViewModel
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbIcons
 import com.nextbench.core.designsystem.NbLogo
@@ -67,6 +68,7 @@ fun NbAppShell(
     onDeepLinkHandled: () -> Unit = {},
     navController: NavHostController = rememberNavController(),
     authViewModel: AuthViewModel = hiltViewModel(),
+    onboardingViewModel: OnboardingViewModel = hiltViewModel(),
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentPath = backStackEntry?.destination?.route
@@ -74,6 +76,7 @@ fun NbAppShell(
     val selectedTab = NbRoute.tabFor(currentPath) ?: NbTab.Feed
     val session by authViewModel.session.collectAsStateWithLifecycle()
     val signedInUid = (session as? SessionState.SignedIn)?.firebaseUser?.uid
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
     var feedChromeVisible by remember { mutableStateOf(true) }
     LaunchedEffect(currentPath) {
         if (currentPath != NbRoute.Feed.path) feedChromeVisible = true
@@ -81,9 +84,10 @@ fun NbAppShell(
     val showAnimatedChrome = currentPath != NbRoute.Feed.path || feedChromeVisible
 
     PushPermissionCoordinator(signedInUid)
-    LaunchedEffect(pendingDeepLinkIntent, signedInUid) {
+    LaunchedEffect(pendingDeepLinkIntent, signedInUid, onboardingState.completed, currentPath) {
         pendingDeepLinkIntent ?: return@LaunchedEffect
-        if (signedInUid != null) {
+        val initialJourneyFinished = currentPath != NbRoute.Splash.path && currentPath != NbRoute.Onboarding.path
+        if (signedInUid != null && onboardingState.completed == true && initialJourneyFinished) {
             navController.handleDeepLink(pendingDeepLinkIntent)
             onDeepLinkHandled()
         }
@@ -130,6 +134,7 @@ fun NbAppShell(
         NbNavHost(
             navController = navController,
             authViewModel = authViewModel,
+            onboardingViewModel = onboardingViewModel,
             onToggleTheme = onToggleTheme,
             onFeedChromeVisibilityChanged = { visible ->
                 if (currentPath == NbRoute.Feed.path) feedChromeVisible = visible

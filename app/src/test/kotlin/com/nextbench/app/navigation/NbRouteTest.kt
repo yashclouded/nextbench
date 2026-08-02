@@ -9,6 +9,7 @@ class NbRouteTest {
 
     @Test
     fun websiteRouteFamiliesHaveStableAndroidPaths() {
+        assertEquals("onboarding", NbRoute.Onboarding.path)
         assertEquals("community", NbRoute.Feed.path)
         assertEquals("product/{productId}", NbRoute.ProductDetail.path)
         assertEquals("post/{postId}", NbRoute.PostDetail.path)
@@ -16,6 +17,12 @@ class NbRouteTest {
         assertEquals("messages/club/{clubId}", NbRoute.MessagesClub.path)
         assertEquals("club/{clubId}/settings", NbRoute.ClubSettings.path)
         assertEquals("u/{username}", NbRoute.UsernameProfile.path)
+    }
+
+    @Test
+    fun firstLaunchRoutesToOnboardingBeforeFeed() {
+        assertEquals(NbRoute.Onboarding.path, initialDestination(onboardingComplete = false))
+        assertEquals(NbRoute.Feed.path, initialDestination(onboardingComplete = true))
     }
 
     @Test

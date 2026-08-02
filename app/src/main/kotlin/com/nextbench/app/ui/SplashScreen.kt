@@ -34,7 +34,7 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun SplashScreen(
-    sessionReady: Boolean,
+    appReady: Boolean,
     onFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -59,8 +59,8 @@ fun SplashScreen(
         animationFinished = true
     }
 
-    LaunchedEffect(animationFinished, sessionReady) {
-        if (animationFinished && sessionReady && !handedOff) {
+    LaunchedEffect(animationFinished, appReady) {
+        if (animationFinished && appReady && !handedOff) {
             handedOff = true
             onFinished()
         }

@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,6 +37,8 @@ import com.nextbench.app.marketplace.ProductDetailScreen
 import com.nextbench.app.marketplace.ProductComposerScreen
 import com.nextbench.app.marketplace.WishlistScreen
 import com.nextbench.app.notifications.NotificationsScreen
+import com.nextbench.app.onboarding.OnboardingScreen
+import com.nextbench.app.onboarding.OnboardingViewModel
 import com.nextbench.app.invite.InviteScreen
 import com.nextbench.app.legal.LegalDocument
 import com.nextbench.app.legal.LegalDocumentScreen
@@ -81,11 +84,13 @@ private val NbExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> Exit
 fun NbNavHost(
     navController: NavHostController,
     authViewModel: AuthViewModel,
+    onboardingViewModel: OnboardingViewModel,
     onToggleTheme: () -> Unit,
     onFeedChromeVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val session by authViewModel.session.collectAsStateWithLifecycle()
+    val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
 
     NavHost(
         navController = navController,
@@ -98,13 +103,30 @@ fun NbNavHost(
     ) {
         composable(NbRoute.Splash.path) {
             SplashScreen(
-                sessionReady = session !is SessionState.Loading,
+                appReady = session !is SessionState.Loading && onboardingState.completed != null,
                 onFinished = {
-                    navController.navigate(NbRoute.Feed.path) {
+                    val onboardingComplete = onboardingState.completed ?: return@SplashScreen
+                    navController.navigate(initialDestination(onboardingComplete)) {
                         popUpTo(NbRoute.Splash.path) { inclusive = true }
                     }
                 },
             )
+        }
+
+        composable(NbRoute.Onboarding.path) {
+            OnboardingScreen(
+                isCompleting = onboardingState.isCompleting,
+                error = onboardingState.error,
+                onComplete = onboardingViewModel::complete,
+            )
+            LaunchedEffect(onboardingState.completed) {
+                if (onboardingState.completed == true) {
+                    navController.navigate(NbRoute.Feed.path) {
+                        popUpTo(NbRoute.Onboarding.path) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
         }
 
         composable(NbRoute.Feed.path) {
@@ -530,6 +552,9 @@ fun NbNavHost(
         composable(NbRoute.Privacy.path) { LegalDocumentScreen(LegalDocument.Privacy, onBack = { navigateBackOrFeed(navController) }) }
     }
 }
+
+internal fun initialDestination(onboardingComplete: Boolean): String =
+    if (onboardingComplete) NbRoute.Feed.path else NbRoute.Onboarding.path
 
 internal fun notificationRoute(link: String): String? {
     val normalized = link.trim().removePrefix("https://nextbench.in/").removePrefix("/")
