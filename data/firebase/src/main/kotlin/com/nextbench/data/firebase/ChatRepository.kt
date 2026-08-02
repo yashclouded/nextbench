@@ -840,6 +840,7 @@ internal fun Map<String, Any?>.toClub(id: String): Club = Club(
     archivedBy = chatStringList("archivedBy"),
     pinnedBy = chatStringList("pinnedBy"),
     deletedBy = chatStringList("deletedBy"),
+    typingUsers = chatTimestampMap("typingUsers"),
     settings = chatMap("settings").toClubSettings(),
     createdAt = chatTimestamp("createdAt"),
 )
@@ -1143,6 +1144,17 @@ private fun Map<String, Any?>.chatReactions(key: String): Map<String, List<Strin
     chatMap(key).mapValues { (_, value) ->
         (value as? List<*>)?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }.orEmpty()
     }
+
+private fun Map<String, Any?>.chatTimestampMap(key: String): Map<String, Timestamp> =
+    chatMap(key).mapNotNull { (mapKey, value) ->
+        val timestamp = when (value) {
+            is Timestamp -> value
+            is Date -> Timestamp(value)
+            is Number -> Timestamp(Date(value.toLong()))
+            else -> null
+        }
+        timestamp?.let { mapKey to it }
+    }.toMap()
 
 private fun Map<String, Any?>.chatForwardedFrom(key: String): ForwardedFrom? = when (val value = get(key)) {
     is String -> value.takeIf(String::isNotBlank)?.let { ForwardedFrom(senderName = it) }

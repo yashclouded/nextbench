@@ -5,10 +5,13 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.ClubSettings
+import com.nextbench.data.model.FileAttachment
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
+import com.nextbench.data.model.VideoAttachment
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
@@ -22,6 +25,7 @@ import kotlinx.coroutines.tasks.await
 class ClubRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
     private val refsProvider: Provider<FirestoreRefs>,
+    private val uploader: CloudinaryUploader,
 ) {
     private val auth get() = authProvider.get()
     private val refs get() = refsProvider.get()
@@ -226,6 +230,15 @@ class ClubRepository @Inject constructor(
         )
     }
 
+    suspend fun sendImage(clubId: String, sender: UserData, file: File, width: Int, height: Int, caption: String?, replyTo: Message?): Result<Message> =
+        sendAttachment(clubId, sender, file, caption = caption, replyTo = replyTo, kind = ClubAttachmentKind.Image(width, height))
+
+    suspend fun sendVideo(clubId: String, sender: UserData, file: File, width: Int, height: Int, durationMs: Long?, caption: String?, replyTo: Message?): Result<Message> =
+        sendAttachment(clubId, sender, file, caption = caption, replyTo = replyTo, kind = ClubAttachmentKind.Video(width, height, durationMs))
+
+    suspend fun sendFile(clubId: String, sender: UserData, file: File, displayName: String, mimeType: String, caption: String?, replyTo: Message?): Result<Message> =
+        sendAttachment(clubId, sender, file, displayName = displayName, caption = caption, replyTo = replyTo, kind = ClubAttachmentKind.File(mimeType))
+
     suspend fun toggleReaction(clubId: String, messageId: String, uid: String, emoji: String): Result<Boolean> = runCatching {
         ensureConfigured()
         requireAuthenticated(uid)
@@ -278,6 +291,16 @@ class ClubRepository @Inject constructor(
         ).await()
     }
 
+    suspend fun setTyping(clubId: String, uid: String, typing: Boolean): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        requireClubMember(clubId, uid)
+        refs.club(clubId).update(
+            "typingUsers.$uid",
+            if (typing) FieldValue.serverTimestamp() else FieldValue.delete(),
+        ).await()
+    }
+
     private fun requireAuthenticated(uid: String) {
         require(uid.isNotBlank() && auth.currentUser?.uid == uid) {
             "Your session expired. Sign in and try again."
@@ -289,6 +312,55 @@ class ClubRepository @Inject constructor(
 
     private suspend fun requireClubMember(clubId: String, uid: String) {
         require(isClubMember(clubId, uid)) { "You are not a member of this club." }
+    }
+
+    private suspend fun sendAttachment(
+        clubId: String,
+        sender: UserData,
+        file: File,
+        displayName: String = file.name,
+        caption: String?,
+        replyTo: Message?,
+        kind: ClubAttachmentKind,
+    ): Result<Message> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(sender.uid)
+        require(file.isFile && file.length() > 0L) { "Choose a valid attachment." }
+        val club = refs.club(clubId).get().await().toClub() ?: error("This club is no longer available.")
+        require(sender.uid in club.memberIds) { "Join this club before posting." }
+        val lead = sender.uid == club.leadId || sender.uid in club.coLeadIds
+        require(!club.settings.onlyLeadsCanPost || lead) { "Only club leads can post right now." }
+        val uploaded = when (kind) {
+            is ClubAttachmentKind.Image -> uploader.upload(file, "nextbench/club_images/$clubId", CloudinaryResourceType.Image)
+            is ClubAttachmentKind.Video -> uploader.upload(file, "nextbench/club_videos/$clubId", CloudinaryResourceType.Video)
+            is ClubAttachmentKind.File -> uploader.upload(file, "nextbench/club_files/$clubId", if (kind.mime == "application/pdf") CloudinaryResourceType.Image else CloudinaryResourceType.Raw)
+        }
+        val messageRef = refs.clubMessages(clubId).document()
+        val payload = clubAttachmentPayload(sender, messageRef.id, uploaded, kind, displayName, file.length(), caption, replyTo)
+        val preview = caption?.trim().takeUnless { it.isNullOrBlank() } ?: kind.label
+        val recipients = club.memberIds.filter { it != sender.uid && it.isNotBlank() }
+        val batch = refs.club(clubId).firestore.batch()
+        batch.set(messageRef, payload)
+        batch.update(refs.club(clubId), clubMessageMetadataPayload(sender, preview, recipients))
+        batch.commit().await()
+        Message(
+            id = messageRef.id,
+            senderId = sender.uid,
+            senderName = sender.name.ifBlank { "Student" },
+            senderAvatar = sender.profilePicture,
+            text = caption?.trim()?.takeIf(String::isNotBlank),
+            image = uploaded.url.takeIf { kind is ClubAttachmentKind.Image },
+            video = (kind as? ClubAttachmentKind.Video)?.let { VideoAttachment(uploaded.url, w = it.width, h = it.height, duration = it.durationMs ?: 0L) },
+            file = (kind as? ClubAttachmentKind.File)?.let { FileAttachment(uploaded.url, displayName, file.length(), it.mime, uploaded.pages) },
+            type = kind.type,
+            createdAt = com.google.firebase.Timestamp.now(),
+            clientMessageId = "android_${messageRef.id}",
+            status = MessageStatus.Sent.raw,
+            replyToMessageId = replyTo?.id,
+            replyToText = replyTo?.clubReplyPreview(),
+            replyToSenderName = replyTo?.senderName,
+            replyToType = replyTo?.type,
+        )
     }
 
     private fun ensureConfigured() {
@@ -305,6 +377,51 @@ class ClubRepository @Inject constructor(
         internal const val PublicClubLimit = 20
         internal const val PublicClubQueryLimit = 50L
         internal const val ClubMessageWindowSize = 100L
+    }
+}
+
+internal sealed interface ClubAttachmentKind {
+    val type: String
+    val label: String
+    data class Image(val width: Int, val height: Int) : ClubAttachmentKind { override val type = MessageType.Image.raw; override val label = "Photo" }
+    data class Video(val width: Int, val height: Int, val durationMs: Long?) : ClubAttachmentKind { override val type = MessageType.Video.raw; override val label = "Video" }
+    data class File(val mime: String) : ClubAttachmentKind { override val type = MessageType.File.raw; override val label = "Document" }
+}
+
+internal fun clubAttachmentPayload(
+    sender: UserData,
+    messageId: String,
+    uploaded: CloudinaryResult,
+    kind: ClubAttachmentKind,
+    fileName: String,
+    fileSize: Long,
+    caption: String?,
+    replyTo: Message?,
+): Map<String, Any?> = buildMap {
+    put("senderId", sender.uid)
+    put("senderName", sender.name.ifBlank { "Student" })
+    put("senderAvatar", sender.profilePicture)
+    put("type", kind.type)
+    put("createdAt", FieldValue.serverTimestamp())
+    put("clientMessageId", "android_$messageId")
+    put("status", MessageStatus.Sent.raw)
+    caption?.trim()?.takeIf(String::isNotBlank)?.let { put("text", it) }
+    when (kind) {
+        is ClubAttachmentKind.Image -> put("image", mapOf("url" to uploaded.url, "w" to kind.width, "h" to kind.height))
+        is ClubAttachmentKind.Video -> put("video", mapOf("url" to uploaded.url, "w" to kind.width, "h" to kind.height, "duration" to (kind.durationMs ?: 0L)))
+        is ClubAttachmentKind.File -> put("file", buildMap<String, Any> {
+            put("url", uploaded.url)
+            put("name", fileName)
+            put("size", fileSize)
+            put("mime", kind.mime)
+            uploaded.pages?.let { put("pages", it) }
+        })
+    }
+    replyTo?.let {
+        put("replyToMessageId", it.id)
+        put("replyToText", it.clubReplyPreview())
+        put("replyToSenderName", it.senderName)
+        put("replyToType", it.type)
     }
 }
 
@@ -395,6 +512,7 @@ internal fun clubCreationPayload(
     "archivedBy" to emptyList<String>(),
     "pinnedBy" to emptyList<String>(),
     "deletedBy" to emptyList<String>(),
+    "typingUsers" to emptyMap<String, Any>(),
 )
 
 internal fun generateClubInviteCode(random: kotlin.random.Random = kotlin.random.Random.Default): String =

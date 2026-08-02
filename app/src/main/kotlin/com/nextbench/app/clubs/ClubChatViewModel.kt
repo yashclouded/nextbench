@@ -5,6 +5,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.ClubRepository
+import com.nextbench.app.chat.ChatAttachmentKind
+import com.nextbench.app.chat.ChatMediaStore
+import com.nextbench.app.chat.PreparedChatAttachment
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.UserData
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class ClubChatNoticeKind { Info, Success, Error }
@@ -30,6 +34,9 @@ data class ClubChatUiState(
     val composerText: String = "",
     val replyTo: Message? = null,
     val actionMessage: Message? = null,
+    val attachment: PreparedChatAttachment? = null,
+    val isPreparingAttachment: Boolean = false,
+    val isSendingAttachment: Boolean = false,
     val isLoading: Boolean = true,
     val isSending: Boolean = false,
     val isLeaving: Boolean = false,
@@ -44,13 +51,27 @@ data class ClubChatUiState(
         return member && (!current.settings.onlyLeadsCanPost || lead)
     }
 
-    fun canSend(viewerId: String?): Boolean = canPost(viewerId) && !isSending && composerText.trim().isNotEmpty()
+    fun canSend(viewerId: String?): Boolean = canPost(viewerId) && !isSending && !isSendingAttachment && composerText.trim().isNotEmpty()
+    fun canSendAttachment(viewerId: String?): Boolean = canSendClubAttachment(
+        canPost = canPost(viewerId),
+        hasAttachment = attachment != null,
+        isSending = isSending,
+        isSendingAttachment = isSendingAttachment,
+    )
 }
+
+internal fun canSendClubAttachment(
+    canPost: Boolean,
+    hasAttachment: Boolean,
+    isSending: Boolean,
+    isSendingAttachment: Boolean,
+): Boolean = canPost && hasAttachment && !isSending && !isSendingAttachment
 
 @HiltViewModel
 class ClubChatViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: ClubRepository,
+    private val mediaStore: ChatMediaStore,
 ) : ViewModel() {
     private val clubId: String = requireNotNull(savedStateHandle["clubId"]) { "Club chat requires a clubId." }
     private val _state = MutableStateFlow(ClubChatUiState())
@@ -60,9 +81,14 @@ class ClubChatViewModel @Inject constructor(
     private var clubJob: Job? = null
     private var messagesJob: Job? = null
     private var noticeId = 0L
+    private var typingActive = false
+    private var typingIdleJob: Job? = null
+    private var typingRefreshJob: Job? = null
 
     fun syncViewer(user: UserData?) {
         if (viewer?.uid == user?.uid && (viewer == null) == (user == null)) return
+        stopTyping()
+        state.value.attachment?.file?.delete()
         viewer = user
         clubJob?.cancel()
         messagesJob?.cancel()
@@ -84,17 +110,68 @@ class ClubChatViewModel @Inject constructor(
         }
     }
 
-    fun setComposerText(value: String) = _state.update { it.copy(composerText = value.take(2_000)) }
+    fun setComposerText(value: String) {
+        val normalized = value.take(2_000)
+        _state.update { it.copy(composerText = normalized) }
+        if (normalized.isBlank()) stopTyping() else {
+            startTyping()
+            typingIdleJob?.cancel()
+            typingIdleJob = viewModelScope.launch { delay(TypingIdleMillis); stopTyping() }
+        }
+    }
+
+    fun prepareAttachment(uri: android.net.Uri, kind: ChatAttachmentKind? = null) {
+        if (state.value.isPreparingAttachment || state.value.isSendingAttachment) return
+        state.value.attachment?.file?.delete()
+        _state.update { it.copy(isPreparingAttachment = true, attachment = null) }
+        viewModelScope.launch {
+            mediaStore.prepare(uri, kind).fold(
+                onSuccess = { attachment -> _state.update { it.copy(attachment = attachment, isPreparingAttachment = false) } },
+                onFailure = { error -> _state.update { it.copy(isPreparingAttachment = false) }; showNotice(error.clubMessage(), ClubChatNoticeKind.Error) },
+            )
+        }
+    }
+
+    fun clearAttachment() {
+        if (state.value.isPreparingAttachment || state.value.isSendingAttachment) return
+        state.value.attachment?.file?.delete()
+        _state.update { it.copy(attachment = null) }
+    }
 
     fun sendText(): Boolean {
         val sender = viewer ?: return false
         val snapshot = state.value
         if (!snapshot.canSend(sender.uid)) return false
         _state.update { it.copy(isSending = true) }
+        stopTyping()
         viewModelScope.launch {
             repository.sendText(clubId, sender, snapshot.composerText, snapshot.replyTo).fold(
                 onSuccess = { _state.update { it.copy(composerText = "", replyTo = null, isSending = false) } },
                 onFailure = { error -> _state.update { it.copy(isSending = false) }; showNotice(error.clubMessage(), ClubChatNoticeKind.Error) },
+            )
+        }
+        return true
+    }
+
+    fun sendAttachment(): Boolean {
+        val sender = viewer ?: return false
+        val snapshot = state.value
+        val attachment = snapshot.attachment ?: return false
+        if (!snapshot.canSendAttachment(sender.uid)) return false
+        _state.update { it.copy(isSendingAttachment = true) }
+        stopTyping()
+        viewModelScope.launch {
+            val result = when {
+                attachment.mimeType.startsWith("image/") -> repository.sendImage(clubId, sender, attachment.file, attachment.width, attachment.height, snapshot.composerText, snapshot.replyTo)
+                attachment.mimeType.startsWith("video/") -> repository.sendVideo(clubId, sender, attachment.file, attachment.width, attachment.height, attachment.durationMs, snapshot.composerText, snapshot.replyTo)
+                else -> repository.sendFile(clubId, sender, attachment.file, attachment.displayName, attachment.mimeType, snapshot.composerText, snapshot.replyTo)
+            }
+            result.fold(
+                onSuccess = {
+                    attachment.file.delete()
+                    _state.update { it.copy(attachment = null, composerText = "", replyTo = null, isSendingAttachment = false) }
+                },
+                onFailure = { error -> _state.update { it.copy(isSendingAttachment = false) }; showNotice(error.clubMessage(), ClubChatNoticeKind.Error) },
             )
         }
         return true
@@ -140,6 +217,34 @@ class ClubChatViewModel @Inject constructor(
         viewModelScope.launch { repository.markMessageRead(clubId, messageId, uid) }
     }
 
+    private fun startTyping() {
+        val uid = viewer?.uid ?: return
+        if (!state.value.canPost(uid)) return
+        if (!typingActive) {
+            typingActive = true
+            viewModelScope.launch { repository.setTyping(clubId, uid, true) }
+        }
+        if (typingRefreshJob?.isActive != true) {
+            typingRefreshJob = viewModelScope.launch {
+                while (typingActive) {
+                    delay(TypingRefreshMillis)
+                    if (typingActive) repository.setTyping(clubId, uid, true)
+                }
+            }
+        }
+    }
+
+    fun stopTyping() {
+        typingIdleJob?.cancel()
+        typingIdleJob = null
+        typingRefreshJob?.cancel()
+        typingRefreshJob = null
+        if (!typingActive) return
+        typingActive = false
+        val uid = viewer?.uid ?: return
+        viewModelScope.launch { repository.setTyping(clubId, uid, false) }
+    }
+
     fun leaveClub(): Boolean {
         val uid = viewer?.uid ?: return false
         if (state.value.isLeaving || !state.value.isMember(uid)) return false
@@ -157,4 +262,16 @@ class ClubChatViewModel @Inject constructor(
 
     private fun showNotice(message: String, kind: ClubChatNoticeKind) = _state.update { it.copy(notice = ClubChatNotice(++noticeId, message, kind)) }
     private fun showLoadError(error: Throwable) = _state.update { it.copy(isLoading = false, error = error.clubMessage()) }
+
+    override fun onCleared() {
+        typingIdleJob?.cancel()
+        typingRefreshJob?.cancel()
+        state.value.attachment?.file?.delete()
+        super.onCleared()
+    }
+
+    companion object {
+        private const val TypingIdleMillis = 3_000L
+        private const val TypingRefreshMillis = 2_000L
+    }
 }

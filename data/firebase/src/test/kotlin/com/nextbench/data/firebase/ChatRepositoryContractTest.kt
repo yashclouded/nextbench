@@ -1,5 +1,6 @@
 package com.nextbench.data.firebase
 
+import com.google.firebase.Timestamp
 import com.nextbench.data.model.ChatRoom
 import com.nextbench.data.model.ClubType
 import com.nextbench.data.model.Message
@@ -10,11 +11,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Date
 
 class ChatRepositoryContractTest {
 
     @Test
     fun `club documents match the shared web schema`() {
+        val typingAt = Timestamp(Date(1_725_000_000_000L))
         val club = mapOf<String, Any?>(
             "name" to "Design Circle",
             "avatar" to "https://cdn/club.jpg",
@@ -24,6 +27,7 @@ class ChatRepositoryContractTest {
             "leadId" to "lead-1",
             "memberIds" to listOf("lead-1", "student-2"),
             "memberCount" to 2L,
+            "typingUsers" to mapOf("student-2" to typingAt),
             "settings" to mapOf("slowMode" to 30L, "onlyLeadsCanPost" to true),
         ).toClub("club-1")
 
@@ -34,6 +38,7 @@ class ChatRepositoryContractTest {
         assertEquals(30, club.settings.slowMode)
         assertEquals(true, club.settings.onlyLeadsCanPost)
         assertEquals(ClubType.Private.raw, club.type)
+        assertEquals(typingAt, club.typingUsers["student-2"])
     }
 
     @Test

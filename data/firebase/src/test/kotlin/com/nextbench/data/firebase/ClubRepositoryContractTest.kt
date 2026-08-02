@@ -1,6 +1,7 @@
 package com.nextbench.data.firebase
 
 import com.nextbench.data.model.UserData
+import com.nextbench.data.model.FileAttachment
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
 import org.junit.Assert.assertEquals
@@ -66,6 +67,76 @@ class ClubRepositoryContractTest {
     }
 
     @Test
+    fun `club image attachments preserve dimensions caption and reply metadata`() {
+        val payload = clubAttachmentPayload(
+            sender = UserData(uid = "student-1", name = "Maya", profilePicture = "https://cdn/avatar.jpg"),
+            messageId = "message-2",
+            uploaded = CloudinaryResult("https://cdn/photo.jpg", "photo", 1200, 900, "jpg"),
+            kind = ClubAttachmentKind.Image(width = 1200, height = 900),
+            fileName = "photo.jpg",
+            fileSize = 240_000L,
+            caption = "  Studio references  ",
+            replyTo = Message(id = "message-1", senderName = "Noah", text = "Share the moodboard"),
+        )
+
+        assertEquals(MessageType.Image.raw, payload["type"])
+        assertEquals("Studio references", payload["text"])
+        assertEquals("https://cdn/photo.jpg", (payload["image"] as Map<*, *>)["url"])
+        assertEquals(1200, (payload["image"] as Map<*, *>)["w"])
+        assertEquals("message-1", payload["replyToMessageId"])
+        assertEquals("Share the moodboard", payload["replyToText"])
+    }
+
+    @Test
+    fun `club video attachments preserve playback metadata`() {
+        val payload = clubAttachmentPayload(
+            sender = UserData(uid = "student-1", name = "Maya"),
+            messageId = "video-1",
+            uploaded = CloudinaryResult("https://cdn/clip.mp4", "clip", 1080, 1920, "mp4"),
+            kind = ClubAttachmentKind.Video(width = 1080, height = 1920, durationMs = 8_500L),
+            fileName = "clip.mp4",
+            fileSize = 2_400_000L,
+            caption = null,
+            replyTo = null,
+        )
+
+        val video = payload["video"] as Map<*, *>
+        assertEquals(MessageType.Video.raw, payload["type"])
+        assertEquals("https://cdn/clip.mp4", video["url"])
+        assertEquals(1080, video["w"])
+        assertEquals(1920, video["h"])
+        assertEquals(8_500L, video["duration"])
+    }
+
+    @Test
+    fun `club document attachments preserve file metadata and page count`() {
+        val payload = clubAttachmentPayload(
+            sender = UserData(uid = "student-1", name = "Maya"),
+            messageId = "file-1",
+            uploaded = CloudinaryResult("https://cdn/notes.pdf", "notes", 0, 0, "pdf", pages = 12),
+            kind = ClubAttachmentKind.File(mime = "application/pdf"),
+            fileName = "notes.pdf",
+            fileSize = 480_000L,
+            caption = "Read before Friday",
+            replyTo = Message(
+                id = "older-file",
+                senderName = "Noah",
+                type = MessageType.File.raw,
+                file = FileAttachment(name = "brief.pdf"),
+            ),
+        )
+
+        val file = payload["file"] as Map<*, *>
+        assertEquals(MessageType.File.raw, payload["type"])
+        assertEquals("https://cdn/notes.pdf", file["url"])
+        assertEquals("notes.pdf", file["name"])
+        assertEquals(480_000L, file["size"])
+        assertEquals("application/pdf", file["mime"])
+        assertEquals(12, file["pages"])
+        assertEquals("brief.pdf", payload["replyToText"])
+    }
+
+    @Test
     fun `club delete for everyone redacts all supported media`() {
         val payload = clubDeletedForEveryonePayload()
 
@@ -97,6 +168,7 @@ class ClubRepositoryContractTest {
         assertEquals("Lucknow", payload["city"])
         assertTrue(payload.containsKey("createdAt"))
         assertTrue(payload.containsKey("updatedAt"))
+        assertTrue(payload.containsKey("typingUsers"))
     }
 
     @Test

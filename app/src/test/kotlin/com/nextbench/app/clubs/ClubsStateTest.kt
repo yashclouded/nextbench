@@ -54,6 +54,26 @@ class ClubsStateTest {
     }
 
     @Test
+    fun `club attachment send readiness respects permissions and busy state`() {
+        assertTrue(canSendClubAttachment(canPost = true, hasAttachment = true, isSending = false, isSendingAttachment = false))
+        assertFalse(canSendClubAttachment(canPost = false, hasAttachment = true, isSending = false, isSendingAttachment = false))
+        assertFalse(canSendClubAttachment(canPost = true, hasAttachment = false, isSending = false, isSendingAttachment = false))
+        assertFalse(canSendClubAttachment(canPost = true, hasAttachment = true, isSending = true, isSendingAttachment = false))
+        assertFalse(canSendClubAttachment(canPost = true, hasAttachment = true, isSending = false, isSendingAttachment = true))
+    }
+
+    @Test
+    fun `club text sending is blocked while an attachment upload is active`() {
+        val state = ClubChatUiState(
+            club = Club(leadId = "lead", memberIds = listOf("lead")),
+            composerText = "Caption",
+            isSendingAttachment = true,
+        )
+
+        assertFalse(state.canSend("lead"))
+    }
+
+    @Test
     fun `club settings distinguish lead and member permissions`() {
         val state = ClubSettingsUiState(
             club = Club(leadId = "lead", memberIds = listOf("lead", "member")),

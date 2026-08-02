@@ -3,6 +3,9 @@ package com.nextbench.app.clubs
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -37,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +61,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nextbench.core.common.formatRelativeTime
@@ -70,6 +77,7 @@ import com.nextbench.core.designsystem.NbPill
 import com.nextbench.core.designsystem.NbSkeletonLine
 import com.nextbench.core.designsystem.NbTextField
 import com.nextbench.core.designsystem.NbTheme
+import com.nextbench.app.chat.PreparedChatAttachment
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
@@ -86,16 +94,35 @@ fun ClubChatScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val viewerId = user?.uid
     val listState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var showAttachmentPicker by remember { mutableStateOf(false) }
+    var typingClock by remember { mutableStateOf(System.currentTimeMillis()) }
+    val visualPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(viewModel::prepareAttachment) }
+    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::prepareAttachment) }
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
     LaunchedEffect(state.messages.size) { if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex) }
-    BackHandler(enabled = state.actionMessage != null) { viewModel.closeMessageActions() }
+    val activeTypers = state.club?.typingUsers.orEmpty().filter { (uid, timestamp) ->
+        uid != viewerId && typingClock - timestamp.toDate().time < 5_000L
+    }
+    LaunchedEffect(state.club?.typingUsers) {
+        if (state.club?.typingUsers.isNullOrEmpty()) return@LaunchedEffect
+        while (true) { typingClock = System.currentTimeMillis(); kotlinx.coroutines.delay(1_000L) }
+    }
+    DisposableEffect(viewModel, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) viewModel.stopTyping() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); viewModel.stopTyping() }
+    }
+    BackHandler(enabled = state.actionMessage != null || showAttachmentPicker) {
+        if (showAttachmentPicker) showAttachmentPicker = false else viewModel.closeMessageActions()
+    }
 
     Column(modifier = modifier.fillMaxSize().background(NbTheme.colors.surfaceBase)) {
         when {
             state.isLoading && state.club == null -> ClubChatLoading()
             state.error != null && state.club == null -> NbEmptyState(icon = NbIcons.Messages, title = "Club unavailable", message = state.error.orEmpty(), modifier = Modifier.fillMaxSize())
             else -> {
-                ClubChatHeader(club = state.club, onSettings = { clubId -> onOpenSettings(clubId) })
+                ClubChatHeader(club = state.club, typingCount = activeTypers.size, onSettings = { clubId -> onOpenSettings(clubId) })
                 HorizontalDivider(color = NbTheme.colors.border)
                 Box(modifier = Modifier.weight(1f)) {
                     if (state.messages.isEmpty()) {
@@ -132,10 +159,18 @@ fun ClubChatScreen(
                     ClubComposer(
                         value = state.composerText,
                         replyTo = state.replyTo,
+                        attachment = state.attachment,
+                        preparingAttachment = state.isPreparingAttachment,
+                        sendingAttachment = state.isSendingAttachment,
                         onValueChange = viewModel::setComposerText,
                         onClearReply = { viewModel.setReplyTo(null) },
+                        onAddAttachment = { if (canPost) showAttachmentPicker = true },
+                        onClearAttachment = viewModel::clearAttachment,
                         onSend = { viewModel.sendText() },
+                        onSendAttachment = { viewModel.sendAttachment() },
                         enabled = canSend,
+                        composerEnabled = canPost && !state.isSending && !state.isSendingAttachment,
+                        attachmentEnabled = state.canSendAttachment(viewerId),
                         sending = state.isSending,
                     )
                 }
@@ -153,17 +188,28 @@ fun ClubChatScreen(
             onDismiss = viewModel::closeMessageActions,
         )
     }
+    if (showAttachmentPicker) {
+        ClubAttachmentPickerSheet(
+            onPickMedia = { showAttachmentPicker = false; visualPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+            onPickFile = { showAttachmentPicker = false; documentPicker.launch(arrayOf("*/*")) },
+            onDismiss = { showAttachmentPicker = false },
+        )
+    }
 }
 
 @Composable
-private fun ClubChatHeader(club: Club?, onSettings: (String) -> Unit) {
+private fun ClubChatHeader(club: Club?, typingCount: Int, onSettings: (String) -> Unit) {
     val current = club ?: return
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16, vertical = NbDimens.space12), verticalAlignment = Alignment.CenterVertically) {
         ClubHeaderAvatar(current)
         Spacer(Modifier.width(NbDimens.space12))
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
             Text(current.name.ifBlank { "Campus club" }, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${current.memberCount} members  ·  ${if (current.type == "private") "Private" else "Public"}", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
+            Text(
+                if (typingCount == 1) "Someone is typing..." else if (typingCount > 1) "Several members are typing..." else "${current.memberCount} members  ·  ${if (current.type == "private") "Private" else "Public"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (typingCount > 0) NbTheme.colors.brandTeal else NbTheme.colors.inkMuted,
+            )
         }
         IconButton(onClick = { onSettings(current.id) }, modifier = Modifier.semantics { contentDescription = "Open club settings" }) {
             Icon(NbIcons.More, contentDescription = null, tint = NbTheme.colors.inkMuted)
@@ -253,7 +299,23 @@ private fun ClubMessageBubble(
 }
 
 @Composable
-private fun ClubComposer(value: String, replyTo: Message?, onValueChange: (String) -> Unit, onClearReply: () -> Unit, onSend: () -> Unit, enabled: Boolean, sending: Boolean) {
+private fun ClubComposer(
+    value: String,
+    replyTo: Message?,
+    attachment: PreparedChatAttachment?,
+    preparingAttachment: Boolean,
+    sendingAttachment: Boolean,
+    onValueChange: (String) -> Unit,
+    onClearReply: () -> Unit,
+    onAddAttachment: () -> Unit,
+    onClearAttachment: () -> Unit,
+    onSend: () -> Unit,
+    onSendAttachment: () -> Unit,
+    enabled: Boolean,
+    composerEnabled: Boolean,
+    attachmentEnabled: Boolean,
+    sending: Boolean,
+) {
     Column(modifier = Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = NbDimens.space12, vertical = NbDimens.space8)) {
         replyTo?.let { reply ->
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = NbDimens.space4), verticalAlignment = Alignment.CenterVertically) {
@@ -261,11 +323,39 @@ private fun ClubComposer(value: String, replyTo: Message?, onValueChange: (Strin
                 IconButton(onClick = onClearReply, modifier = Modifier.size(28.dp)) { Icon(NbIcons.Close, contentDescription = "Cancel reply", tint = NbTheme.colors.inkMuted, modifier = Modifier.size(16.dp)) }
             }
         }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
-            NbTextField(value = value, onValueChange = onValueChange, modifier = Modifier.weight(1f), placeholder = "Write to the club...", singleLine = false, maxLines = 5, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default), keyboardActions = KeyboardActions.Default)
-            IconButton(onClick = onSend, enabled = enabled, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(NbDimens.radiusMd)).background(if (enabled) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft).semantics { contentDescription = "Send club message" }) {
-                if (sending) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(NbIcons.Send, contentDescription = null, tint = if (enabled) Color.White else NbTheme.colors.inkFaint)
+        attachment?.let { selected ->
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = NbDimens.space8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+                if (selected.mimeType.startsWith("image/")) AsyncImage(selected.previewUri, "Selected attachment", contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(NbDimens.radiusSm)))
+                else Box(modifier = Modifier.size(52.dp).clip(RoundedCornerShape(NbDimens.radiusSm)).background(NbTheme.colors.surfaceSoft), contentAlignment = Alignment.Center) { Icon(if (selected.mimeType.startsWith("video/")) NbIcons.Play else NbIcons.FileText, contentDescription = null, tint = NbTheme.colors.brandTeal) }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(selected.displayName, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (selected.mimeType.startsWith("image/")) "Photo" else if (selected.mimeType.startsWith("video/")) "Video" else "Document", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+                }
+                IconButton(onClick = onClearAttachment, enabled = !sendingAttachment) { Icon(NbIcons.Close, contentDescription = "Remove attachment", tint = NbTheme.colors.inkMuted) }
             }
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+            IconButton(onClick = onAddAttachment, enabled = composerEnabled && !preparingAttachment && !sendingAttachment, modifier = Modifier.size(44.dp).semantics { contentDescription = "Add club attachment" }) {
+                if (preparingAttachment) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = NbTheme.colors.brandTeal, strokeWidth = 2.dp) else Icon(NbIcons.Plus, contentDescription = null, tint = NbTheme.colors.brandTeal)
+            }
+            NbTextField(value = value, onValueChange = onValueChange, modifier = Modifier.weight(1f), placeholder = "Write to the club...", enabled = composerEnabled, singleLine = false, maxLines = 5, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default), keyboardActions = KeyboardActions.Default)
+            val canSubmit = if (attachment != null) attachmentEnabled else enabled
+            IconButton(onClick = if (attachment != null) onSendAttachment else onSend, enabled = canSubmit, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(NbDimens.radiusMd)).background(if (canSubmit) NbTheme.colors.brandTeal else NbTheme.colors.surfaceSoft).semantics { contentDescription = if (attachment != null) "Send club attachment" else "Send club message" }) {
+                if (sending || sendingAttachment) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) else Icon(NbIcons.Send, contentDescription = null, tint = if (canSubmit) Color.White else NbTheme.colors.inkFaint)
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ClubAttachmentPickerSheet(onPickMedia: () -> Unit, onPickFile: () -> Unit, onDismiss: () -> Unit) {
+    NbBottomSheet(onDismiss = onDismiss) {
+        Column(modifier = Modifier.padding(horizontal = NbDimens.space20), verticalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+            Text("Share with the club", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+            ClubActionRow(NbIcons.Camera, "Photo or video", onPickMedia, NbTheme.colors.brandTeal)
+            ClubActionRow(NbIcons.FileText, "Document", onPickFile, NbTheme.colors.brandPink)
+            NbButton("Cancel", onDismiss, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Ghost)
         }
     }
 }
