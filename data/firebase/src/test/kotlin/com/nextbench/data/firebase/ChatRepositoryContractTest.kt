@@ -2,6 +2,8 @@ package com.nextbench.data.firebase
 
 import com.nextbench.data.model.ChatRoom
 import com.nextbench.data.model.ClubType
+import com.nextbench.data.model.Message
+import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -64,6 +66,28 @@ class ChatRepositoryContractTest {
         assertEquals("android_message-1", payload["clientMessageId"])
         assertEquals("sent", payload["status"])
         assertTrue(payload.containsKey("createdAt"))
+    }
+
+    @Test
+    fun `text payload preserves website reply metadata`() {
+        val reply = Message(
+            id = "message-older",
+            senderId = "student-2",
+            senderName = "Noah",
+            type = MessageType.Image.raw,
+            image = "https://cdn/photo.jpg",
+        )
+        val payload = textMessagePayload(
+            sender = UserData(uid = "student-1", name = "Maya"),
+            messageId = "message-new",
+            text = "Looks great",
+            replyTo = reply,
+        )
+
+        assertEquals("message-older", payload["replyToMessageId"])
+        assertEquals("Photo", payload["replyToText"])
+        assertEquals("image", payload["replyToType"])
+        assertEquals("Noah", payload["replyToSenderName"])
     }
 
     @Test

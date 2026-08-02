@@ -384,6 +384,7 @@ fun NbNavHost(
                 ChatRoomScreen(
                     user = (session as? SessionState.SignedIn)?.userData,
                     onOpenProduct = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+                    onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
                 )
             }
         }
@@ -399,6 +400,7 @@ fun NbNavHost(
                 ChatRoomScreen(
                     user = (session as? SessionState.SignedIn)?.userData,
                     onOpenProduct = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+                    onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
                 )
             }
         }

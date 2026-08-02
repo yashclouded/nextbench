@@ -14,6 +14,7 @@ import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
 import com.nextbench.data.model.VideoAttachment
+import java.io.File
 import java.util.Date
 import javax.inject.Inject
 import javax.inject.Provider
@@ -58,6 +59,7 @@ data class ChatBlockState(
 class ChatRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
     private val refsProvider: Provider<FirestoreRefs>,
+    private val uploader: CloudinaryUploader,
 ) {
     private val auth get() = authProvider.get()
     private val refs get() = refsProvider.get()
@@ -147,6 +149,7 @@ class ChatRepository @Inject constructor(
         roomId: String,
         sender: UserData,
         text: String,
+        replyTo: Message? = null,
     ): Result<Message> = runCatching {
         ensureConfigured()
         requireAuthenticated(sender.uid)
@@ -170,6 +173,7 @@ class ChatRepository @Inject constructor(
             sender = sender,
             messageId = messageRef.id,
             text = normalized,
+            replyTo = replyTo,
         )
         val roomUpdate = roomMetadataPayload(
             senderId = sender.uid,
@@ -191,7 +195,70 @@ class ChatRepository @Inject constructor(
             createdAt = Timestamp.now(),
             clientMessageId = "android_${messageRef.id}",
             status = MessageStatus.Sent.raw,
+            replyToMessageId = replyTo?.id,
+            replyToText = replyTo?.replyPreviewText(),
+            replyToSenderName = replyTo?.senderName,
+            replyToType = replyTo?.replyPreviewType(),
         )
+    }
+
+    suspend fun sendImage(roomId: String, sender: UserData, file: File, width: Int, height: Int, caption: String? = null, replyTo: Message? = null): Result<Message> =
+        sendAttachment(roomId, sender, file, caption, replyTo, AttachmentKind.Image(width, height))
+
+    suspend fun sendVideo(roomId: String, sender: UserData, file: File, width: Int, height: Int, durationMs: Long? = null, caption: String? = null, replyTo: Message? = null): Result<Message> =
+        sendAttachment(roomId, sender, file, caption, replyTo, AttachmentKind.Video(width, height, durationMs))
+
+    suspend fun sendFile(roomId: String, sender: UserData, file: File, mime: String, caption: String? = null, pages: Int? = null, replyTo: Message? = null): Result<Message> =
+        sendAttachment(roomId, sender, file, caption, replyTo, AttachmentKind.File(mime, pages))
+
+    suspend fun toggleReaction(roomId: String, messageId: String, uid: String, emoji: String): Result<Boolean> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(emoji.length <= 16) { "That reaction is not supported." }
+        require(isRoomParticipant(roomId, uid)) { "You are not a member of this conversation." }
+        val ref = refs.messages(roomId).document(messageId)
+        val message = ref.get().await().toMessage()
+            ?: throw FirebaseFirestoreException("This message is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
+        val reactions = message.reactions.toMutableMap()
+        val users = reactions[emoji].orEmpty().toMutableList()
+        val added = uid !in users
+        if (added) users += uid else users -= uid
+        if (users.isEmpty()) reactions.remove(emoji) else reactions[emoji] = users.distinct()
+        ref.update("reactions", reactions).await()
+        added
+    }
+
+    suspend fun deleteForMe(roomId: String, messageId: String, uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(isRoomParticipant(roomId, uid)) { "You are not a member of this conversation." }
+        refs.messages(roomId).document(messageId).update("deletedFor", FieldValue.arrayUnion(uid)).await()
+    }
+
+    suspend fun deleteForEveryone(roomId: String, messageId: String, uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        require(isRoomParticipant(roomId, uid)) { "You are not a member of this conversation." }
+        val ref = refs.messages(roomId).document(messageId)
+        val message = ref.get().await().toMessage()
+            ?: throw FirebaseFirestoreException("This message is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
+        require(message.senderId == uid) { "Only the sender can delete this message for everyone." }
+        ref.update(
+            mapOf(
+                "isDeletedForEveryone" to true,
+                "text" to "This message was deleted",
+                "image" to FieldValue.delete(),
+                "video" to FieldValue.delete(),
+                "file" to FieldValue.delete(),
+                "audioUrl" to FieldValue.delete(),
+            ),
+        ).await()
+    }
+
+    suspend fun markMessageRead(roomId: String, messageId: String, uid: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        if (isRoomParticipant(roomId, uid)) refs.messages(roomId).document(messageId).update("readBy", FieldValue.arrayUnion(uid)).await()
     }
 
     suspend fun markRead(roomId: String, uid: String): Result<Unit> = runCatching {
@@ -257,6 +324,58 @@ class ChatRepository @Inject constructor(
         if (!BuildConfig.FIREBASE_CONFIGURED) throw ChatConfigurationException()
     }
 
+    private suspend fun isRoomParticipant(roomId: String, uid: String): Boolean =
+        refs.chatRoom(roomId).get().await().toChatRoom()?.participants?.contains(uid) == true
+
+    private suspend fun sendAttachment(
+        roomId: String,
+        sender: UserData,
+        file: File,
+        caption: String?,
+        replyTo: Message?,
+        kind: AttachmentKind,
+    ): Result<Message> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(sender.uid)
+        require(file.isFile && file.length() > 0L) { "Choose a valid attachment." }
+        val roomRef = refs.chatRoom(roomId)
+        val room = roomRef.get().await().toChatRoom()
+            ?: throw FirebaseFirestoreException("This conversation is no longer available.", FirebaseFirestoreException.Code.NOT_FOUND)
+        require(sender.uid in room.participants) { "You are not a member of this conversation." }
+        require(room.status != "pending") { "Accept this chat request before replying." }
+        require(!hasBlockRelationship(sender.uid, room.participants.filter { it != sender.uid })) { "Cannot message this user." }
+        val uploaded = when (kind) {
+            is AttachmentKind.Image -> uploader.upload(file, "nextbench/chats/$roomId", CloudinaryResourceType.Image)
+            is AttachmentKind.Video -> uploader.upload(file, "nextbench/chat_videos/$roomId", CloudinaryResourceType.Video)
+            is AttachmentKind.File -> uploader.upload(file, "nextbench/chat_files/$roomId", if (kind.mime == "application/pdf") CloudinaryResourceType.Image else CloudinaryResourceType.Raw)
+        }
+        val messageRef = refs.messages(roomId).document()
+        val payload = attachmentMessagePayload(sender, messageRef.id, uploaded, kind, file.name, file.length(), caption, replyTo)
+        val label = kind.label
+        val batch = roomRef.firestore.batch()
+        batch.set(messageRef, payload)
+        batch.update(roomRef, roomMetadataPayload(sender.uid, caption?.trim().takeUnless { it.isNullOrBlank() } ?: "[$label]", room.participants.filter { it != sender.uid }, label.lowercase()))
+        batch.commit().await()
+        Message(
+            id = messageRef.id,
+            senderId = sender.uid,
+            senderName = sender.name.ifBlank { "Student" },
+            senderAvatar = sender.profilePicture,
+            text = caption?.trim()?.takeIf(String::isNotBlank),
+            type = kind.type,
+            image = (kind as? AttachmentKind.Image)?.let { uploaded.url },
+            video = (kind as? AttachmentKind.Video)?.let { VideoAttachment(uploaded.url, w = it.width, h = it.height, duration = it.durationMs ?: 0L) },
+            file = (kind as? AttachmentKind.File)?.let { FileAttachment(uploaded.url, file.name, file.length(), it.mime, uploaded.pages ?: it.pages) },
+            createdAt = Timestamp.now(),
+            clientMessageId = "android_${messageRef.id}",
+            status = MessageStatus.Sent.raw,
+            replyToMessageId = replyTo?.id,
+            replyToText = replyTo?.replyPreviewText(),
+            replyToSenderName = replyTo?.senderName,
+            replyToType = replyTo?.replyPreviewType(),
+        )
+    }
+
     private fun <T> configuredFlow(uid: String, stream: () -> Flow<T>): Flow<T> = flow {
         ensureConfigured()
         requireAuthenticated(uid)
@@ -267,6 +386,14 @@ class ChatRepository @Inject constructor(
         const val MessageCharacterLimit = 2_000
         const val MessageWindowSize = 100L
     }
+}
+
+private sealed interface AttachmentKind {
+    val type: String
+    val label: String
+    data class Image(val width: Int, val height: Int) : AttachmentKind { override val type = MessageType.Image.raw; override val label = "Photo" }
+    data class Video(val width: Int, val height: Int, val durationMs: Long?) : AttachmentKind { override val type = MessageType.Video.raw; override val label = "Video" }
+    data class File(val mime: String, val pages: Int?) : AttachmentKind { override val type = MessageType.File.raw; override val label = "File" }
 }
 
 internal fun DocumentSnapshot.toChatRoom(): ChatRoom? =
@@ -402,6 +529,7 @@ internal fun textMessagePayload(
     sender: UserData,
     messageId: String,
     text: String,
+    replyTo: Message? = null,
 ): Map<String, Any?> = mapOf(
     "senderId" to sender.uid,
     "senderName" to sender.name.ifBlank { "Student" },
@@ -411,17 +539,69 @@ internal fun textMessagePayload(
     "createdAt" to FieldValue.serverTimestamp(),
     "clientMessageId" to "android_$messageId",
     "status" to MessageStatus.Sent.raw,
-)
+) + replyPayload(replyTo)
+
+private fun attachmentMessagePayload(
+    sender: UserData,
+    messageId: String,
+    uploaded: CloudinaryResult,
+    kind: AttachmentKind,
+    fileName: String,
+    fileSize: Long,
+    caption: String?,
+    replyTo: Message?,
+): Map<String, Any?> = buildMap {
+    put("senderId", sender.uid)
+    put("senderName", sender.name.ifBlank { "Student" })
+    put("senderAvatar", sender.profilePicture)
+    put("type", kind.type)
+    put("createdAt", FieldValue.serverTimestamp())
+    put("clientMessageId", "android_$messageId")
+    put("status", MessageStatus.Sent.raw)
+    caption?.trim()?.takeIf(String::isNotBlank)?.let { put("text", it) }
+    when (kind) {
+        is AttachmentKind.Image -> put("image", mapOf("url" to uploaded.url, "w" to kind.width, "h" to kind.height))
+        is AttachmentKind.Video -> put("video", mapOf("url" to uploaded.url, "w" to kind.width, "h" to kind.height, "duration" to (kind.durationMs ?: 0L)))
+        is AttachmentKind.File -> {
+            val fileMap = mutableMapOf<String, Any>("url" to uploaded.url, "name" to fileName, "size" to fileSize, "mime" to kind.mime)
+            (uploaded.pages ?: kind.pages)?.let { fileMap["pages"] = it }
+            put("file", fileMap)
+        }
+    }
+    putAll(replyPayload(replyTo))
+}
+
+private fun replyPayload(replyTo: Message?): Map<String, Any?> = replyTo?.let {
+    mapOf(
+        "replyToMessageId" to it.id,
+        "replyToText" to it.replyPreviewText(),
+        "replyToSenderName" to it.senderName,
+        "replyToType" to it.replyPreviewType(),
+    )
+}.orEmpty()
+
+private fun Message.replyPreviewType(): String = MessageType.from(type).raw
+
+private fun Message.replyPreviewText(): String = text?.takeIf(String::isNotBlank)
+    ?: when (MessageType.from(type)) {
+        MessageType.Image -> "Photo"
+        MessageType.Video -> "Video"
+        MessageType.File -> file?.name ?: "File"
+        MessageType.Voice -> "Voice message"
+        MessageType.Text -> "Message"
+    }
 
 internal fun roomMetadataPayload(
     senderId: String,
     lastMessage: String,
     recipientIds: List<String>,
+    lastMessageType: String? = null,
 ): Map<String, Any?> = buildMap {
     put("lastMessage", lastMessage)
     put("lastSenderId", senderId)
     put("updatedAt", FieldValue.serverTimestamp())
     put("deletedBy", FieldValue.arrayRemove(senderId))
+    lastMessageType?.let { put("lastMessageType", it) }
     if (recipientIds.isNotEmpty()) {
         put("unreadBy", FieldValue.arrayUnion(*recipientIds.toTypedArray()))
     }
