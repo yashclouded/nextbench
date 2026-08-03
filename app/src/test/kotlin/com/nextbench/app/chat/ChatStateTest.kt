@@ -194,6 +194,19 @@ class ChatStateTest {
     }
 
     @Test
+    fun `reply target index accounts for conversation intro and reconciled client ids`() {
+        val messages = listOf(
+            Message(id = "first"),
+            Message(id = "server-second", clientMessageId = "android-second"),
+        )
+
+        assertEquals(1, replyTargetListIndex(messages, "first"))
+        assertEquals(2, replyTargetListIndex(messages, "server-second"))
+        assertEquals(2, replyTargetListIndex(messages, "android-second"))
+        assertEquals(null, replyTargetListIndex(messages, "missing"))
+    }
+
+    @Test
     fun `optimistic messages reconcile by client id and preserve chronological order`() {
         val sender = UserData(uid = "viewer", name = "Maya")
         val pending = optimisticTextMessage("android-pending", sender, "Pending", null, MessageStatus.Pending)

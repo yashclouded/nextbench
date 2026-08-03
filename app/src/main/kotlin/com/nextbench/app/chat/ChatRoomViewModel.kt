@@ -654,6 +654,10 @@ class ChatRoomViewModel @Inject constructor(
         _state.update { current -> if (current.notice?.id == id) current.copy(notice = null) else current }
     }
 
+    fun notifyReplyTargetUnavailable() {
+        showNotice("The original message is no longer available.", ChatNoticeKind.Info)
+    }
+
     private fun requestAction(operation: suspend () -> Result<Unit>): Boolean {
         val user = viewer ?: return false
         val snapshot = state.value

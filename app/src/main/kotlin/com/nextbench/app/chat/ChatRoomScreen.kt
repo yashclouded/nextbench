@@ -9,12 +9,13 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -135,6 +136,7 @@ fun ChatRoomScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     var showAttachmentPicker by remember { mutableStateOf(false) }
     var initialScrollComplete by remember { mutableStateOf(false) }
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
     var typingClock by remember { mutableStateOf(System.currentTimeMillis()) }
     val scrollScope = rememberCoroutineScope()
     val showJumpToLatest by remember {
@@ -258,12 +260,26 @@ fun ChatRoomScreen(
                             MessageBubble(
                                 message = message,
                                 isViewer = message.senderId == viewerId,
+                                highlighted = highlightedMessageId == message.id,
                                 showSender = previous == null || previous.senderId != message.senderId || messageStartsNewDay(previous, message),
                                 onLongPress = viewModel::openMessageActions,
                                 selectionMode = state.selectionMode,
                                 selected = message.id in state.selectedMessageIds,
                                 onToggleSelection = { viewModel.selectMessage(message) },
                                 onReply = { viewModel.setReplyTo(message) },
+                                onOpenReply = { replyId ->
+                                    val targetIndex = replyTargetListIndex(state.messages, replyId)
+                                    if (targetIndex == null) {
+                                        viewModel.notifyReplyTargetUnavailable()
+                                    } else {
+                                        scrollScope.launch {
+                                            listState.animateScrollToItem(targetIndex)
+                                            highlightedMessageId = state.messages[targetIndex - 1].id
+                                            delay(1_200L)
+                                            highlightedMessageId = null
+                                        }
+                                    }
+                                },
                                 onRetry = { viewModel.retryText(message) },
                                 onRemoveFailed = { viewModel.removeFailedText(message) },
                                 onOpenAttachment = { url -> openAttachment(context, url) },
@@ -580,12 +596,14 @@ private fun ConversationIntro(name: String, avatar: String?, verified: Boolean) 
 private fun MessageBubble(
     message: Message,
     isViewer: Boolean,
+    highlighted: Boolean,
     showSender: Boolean,
     onLongPress: (Message) -> Unit,
     selectionMode: Boolean,
     selected: Boolean,
     onToggleSelection: () -> Unit,
     onReply: () -> Unit,
+    onOpenReply: (String) -> Unit,
     onRetry: () -> Unit,
     onRemoveFailed: () -> Unit,
     onOpenAttachment: (String) -> Unit,
@@ -604,6 +622,15 @@ private fun MessageBubble(
     val deliveryStatus = MessageStatus.from(message.status)
     val replyDisabled = message.isDeletedForEveryone || deliveryStatus != MessageStatus.Sent
     val shape = if (isViewer) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
+    val rowHighlightColor by animateColorAsState(
+        targetValue = when {
+            highlighted -> NbTheme.colors.brandTeal.copy(alpha = 0.14f)
+            selected -> NbTheme.colors.brandTeal.copy(alpha = 0.08f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(durationMillis = 220),
+        label = "replyTargetHighlight",
+    )
     val bubbleColor = if (isViewer) NbTheme.colors.brandTeal else NbTheme.colors.surfaceCard
     val textColor = if (isViewer) Color.White else NbTheme.colors.ink
     Box(modifier = Modifier.fillMaxWidth()) {
@@ -639,7 +666,7 @@ private fun MessageBubble(
                     )
                 }
                 .clip(RoundedCornerShape(NbDimens.radiusSm))
-                .background(if (selected) NbTheme.colors.brandTeal.copy(alpha = 0.08f) else Color.Transparent)
+                .background(rowHighlightColor)
                 .padding(
                     horizontal = if (selectionMode) NbDimens.space4 else 0.dp,
                     vertical = if (selectionMode) NbDimens.space2 else 0.dp,
@@ -680,8 +707,22 @@ private fun MessageBubble(
                     }
                 }
                 if (!message.replyToText.isNullOrBlank()) {
-                    Text("Replying to ${message.replyToSenderName ?: "message"}", style = MaterialTheme.typography.labelSmall, color = if (isViewer) Color.White.copy(alpha = 0.75f) else NbTheme.colors.brandTeal)
-                    Text(message.replyToText.orEmpty(), style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.72f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isViewer) Color.White.copy(alpha = 0.1f) else NbTheme.colors.surfaceSoft)
+                            .clickable(
+                                enabled = !message.replyToMessageId.isNullOrBlank(),
+                                onClick = { message.replyToMessageId?.let(onOpenReply) },
+                            )
+                            .semantics { contentDescription = "Open replied-to message" }
+                            .padding(horizontal = NbDimens.space8, vertical = NbDimens.space8),
+                        verticalArrangement = Arrangement.spacedBy(NbDimens.space2),
+                    ) {
+                        Text("Replying to ${message.replyToSenderName ?: "message"}", style = MaterialTheme.typography.labelSmall, color = if (isViewer) Color.White.copy(alpha = 0.8f) else NbTheme.colors.brandTeal)
+                        Text(message.replyToText.orEmpty(), style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.76f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                 }
                 if (!message.isDeletedForEveryone) when (MessageType.from(message.type)) {
                     MessageType.Image -> message.image?.let { url ->
@@ -766,6 +807,13 @@ internal fun shouldTriggerSwipeReply(offsetPx: Float, thresholdPx: Float, select
 
 internal fun shouldShowJumpToLatest(totalItems: Int, lastVisibleIndex: Int?): Boolean =
     totalItems > 1 && (lastVisibleIndex ?: -1) < totalItems - 2
+
+internal fun replyTargetListIndex(messages: List<Message>, replyToMessageId: String): Int? {
+    val messageIndex = messages.indexOfFirst { message ->
+        message.id == replyToMessageId || message.clientMessageId == replyToMessageId
+    }
+    return messageIndex.takeIf { it >= 0 }?.plus(1)
+}
 
 @Composable
 private fun SelectionIndicator(selected: Boolean) {
