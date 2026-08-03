@@ -111,6 +111,8 @@ import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
 import com.nextbench.data.firebase.ForwardTarget
 import com.nextbench.data.firebase.ForwardTargetType
+import com.nextbench.data.firebase.LinkPreview
+import com.nextbench.data.firebase.firstMessageUrl
 import coil.compose.AsyncImage
 import java.time.Instant
 import java.time.ZoneId
@@ -261,6 +263,7 @@ fun ChatRoomScreen(
                                 message = message,
                                 isViewer = message.senderId == viewerId,
                                 highlighted = highlightedMessageId == message.id,
+                                linkPreview = message.text?.let(::firstMessageUrl)?.let(state.linkPreviews::get),
                                 showSender = previous == null || previous.senderId != message.senderId || messageStartsNewDay(previous, message),
                                 onLongPress = viewModel::openMessageActions,
                                 selectionMode = state.selectionMode,
@@ -597,6 +600,7 @@ private fun MessageBubble(
     message: Message,
     isViewer: Boolean,
     highlighted: Boolean,
+    linkPreview: LinkPreview?,
     showSender: Boolean,
     onLongPress: (Message) -> Unit,
     selectionMode: Boolean,
@@ -771,6 +775,9 @@ private fun MessageBubble(
                         onCycleSpeed = onCycleVoiceSpeed,
                     )
                     MessageType.Text -> if (!message.text.isNullOrBlank()) Text(message.text.orEmpty(), style = MaterialTheme.typography.bodyLarge, color = textColor)
+                }
+                if (!message.isDeletedForEveryone && deliveryStatus == MessageStatus.Sent && linkPreview != null) {
+                    ChatLinkPreview(preview = linkPreview, isViewer = isViewer, onOpen = { url -> onOpenAttachment(url) })
                 }
                 if (message.reactions.isNotEmpty()) {
                     Text(message.reactions.entries.joinToString("  ") { (emoji, users) -> "$emoji ${users.size}" }, style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.78f))

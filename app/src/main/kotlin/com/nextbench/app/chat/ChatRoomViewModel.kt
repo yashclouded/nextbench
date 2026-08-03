@@ -8,6 +8,9 @@ import com.nextbench.data.firebase.ChatBlockState
 import com.nextbench.data.firebase.ChatRepository
 import com.nextbench.data.firebase.ChatRoomDetail
 import com.nextbench.data.firebase.ForwardTarget
+import com.nextbench.data.firebase.LinkPreview
+import com.nextbench.data.firebase.LinkPreviewRepository
+import com.nextbench.data.firebase.firstMessageUrl
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.MessageType
@@ -57,6 +60,7 @@ data class ChatRoomUiState(
     val isSendingVoice: Boolean = false,
     val voiceUploadProgress: Int = 0,
     val voicePlayback: ChatVoicePlaybackState = ChatVoicePlaybackState(),
+    val linkPreviews: Map<String, LinkPreview> = emptyMap(),
     val actionMessage: Message? = null,
     val selectedMessageIds: Set<String> = emptySet(),
     val forwardSourceIds: Set<String> = emptySet(),
@@ -97,6 +101,7 @@ class ChatRoomViewModel @Inject constructor(
     private val mediaStore: ChatMediaStore,
     private val voiceRecorder: ChatVoiceRecorder,
     private val voicePlayer: ChatVoicePlayer,
+    private val linkPreviewRepository: LinkPreviewRepository,
 ) : ViewModel() {
     private val roomId: String = requireNotNull(savedStateHandle["roomId"]) {
         "Conversation requires a roomId navigation argument."
@@ -115,6 +120,7 @@ class ChatRoomViewModel @Inject constructor(
     private var noticeId = 0L
     private var remoteMessages: List<Message> = emptyList()
     private val optimisticMessages = linkedMapOf<String, Message>()
+    private val requestedLinkPreviewUrls = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
@@ -134,6 +140,7 @@ class ChatRoomViewModel @Inject constructor(
         stopTyping()
         remoteMessages = emptyList()
         optimisticMessages.clear()
+        requestedLinkPreviewUrls.clear()
         viewer = user
         _state.value = ChatRoomUiState(isLoading = user != null)
         val uid = user?.uid ?: return
@@ -154,6 +161,7 @@ class ChatRoomViewModel @Inject constructor(
                     val deliveredIds = messages.mapNotNull(Message::clientMessageId).toSet()
                     optimisticMessages.keys.removeAll(deliveredIds)
                     publishMessages(isLoading = false, error = null)
+                    loadLinkPreviews(messages)
                 }
         }
         blockJob = viewModelScope.launch {
@@ -656,6 +664,21 @@ class ChatRoomViewModel @Inject constructor(
 
     fun notifyReplyTargetUnavailable() {
         showNotice("The original message is no longer available.", ChatNoticeKind.Info)
+    }
+
+    private fun loadLinkPreviews(messages: List<Message>) {
+        messages.asSequence()
+            .filter { !it.isDeletedForEveryone && MessageStatus.from(it.status) == MessageStatus.Sent }
+            .mapNotNull { firstMessageUrl(it.text) }
+            .distinct()
+            .filter(requestedLinkPreviewUrls::add)
+            .forEach { url ->
+                viewModelScope.launch {
+                    linkPreviewRepository.resolve(url)?.let { preview ->
+                        _state.update { current -> current.copy(linkPreviews = current.linkPreviews + (url to preview)) }
+                    }
+                }
+            }
     }
 
     private fun requestAction(operation: suspend () -> Result<Unit>): Boolean {

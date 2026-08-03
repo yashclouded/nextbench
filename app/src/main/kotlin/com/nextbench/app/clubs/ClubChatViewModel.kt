@@ -5,6 +5,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.ClubRepository
+import com.nextbench.data.firebase.LinkPreview
+import com.nextbench.data.firebase.LinkPreviewRepository
+import com.nextbench.data.firebase.firstMessageUrl
 import com.nextbench.app.chat.ChatAttachmentKind
 import com.nextbench.app.chat.ChatMediaStore
 import com.nextbench.app.chat.ChatVoicePlaybackState
@@ -46,6 +49,7 @@ data class ClubChatUiState(
     val voiceRecordingLevels: List<Float> = emptyList(),
     val isSendingVoice: Boolean = false,
     val voicePlayback: ChatVoicePlaybackState = ChatVoicePlaybackState(),
+    val linkPreviews: Map<String, LinkPreview> = emptyMap(),
     val isLoading: Boolean = true,
     val isSending: Boolean = false,
     val isLeaving: Boolean = false,
@@ -87,6 +91,7 @@ class ClubChatViewModel @Inject constructor(
     private val mediaStore: ChatMediaStore,
     private val voiceRecorder: ChatVoiceRecorder,
     private val voicePlayer: ChatVoicePlayer,
+    private val linkPreviewRepository: LinkPreviewRepository,
 ) : ViewModel() {
     private val clubId: String = requireNotNull(savedStateHandle["clubId"]) { "Club chat requires a clubId." }
     private val _state = MutableStateFlow(ClubChatUiState())
@@ -100,6 +105,7 @@ class ClubChatViewModel @Inject constructor(
     private var typingIdleJob: Job? = null
     private var typingRefreshJob: Job? = null
     private var voiceRecordingJob: Job? = null
+    private val requestedLinkPreviewUrls = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
@@ -113,6 +119,7 @@ class ClubChatViewModel @Inject constructor(
         cancelVoiceRecording()
         voicePlayer.stop()
         state.value.attachment?.file?.delete()
+        requestedLinkPreviewUrls.clear()
         viewer = user
         clubJob?.cancel()
         messagesJob?.cancel()
@@ -130,7 +137,10 @@ class ClubChatViewModel @Inject constructor(
         messagesJob = viewModelScope.launch {
             repository.observeMessages(clubId, uid)
                 .catch { error -> showLoadError(error) }
-                .collect { messages -> _state.update { it.copy(messages = messages, isLoading = false, error = null) } }
+                .collect { messages ->
+                    _state.update { it.copy(messages = messages, isLoading = false, error = null) }
+                    loadLinkPreviews(messages)
+                }
         }
     }
 
@@ -373,6 +383,21 @@ class ClubChatViewModel @Inject constructor(
     }
 
     fun dismissNotice(id: Long) = _state.update { if (it.notice?.id == id) it.copy(notice = null) else it }
+
+    private fun loadLinkPreviews(messages: List<Message>) {
+        messages.asSequence()
+            .filter { !it.isDeletedForEveryone }
+            .mapNotNull { firstMessageUrl(it.text) }
+            .distinct()
+            .filter(requestedLinkPreviewUrls::add)
+            .forEach { url ->
+                viewModelScope.launch {
+                    linkPreviewRepository.resolve(url)?.let { preview ->
+                        _state.update { current -> current.copy(linkPreviews = current.linkPreviews + (url to preview)) }
+                    }
+                }
+            }
+    }
 
     private fun showNotice(message: String, kind: ClubChatNoticeKind) = _state.update { it.copy(notice = ClubChatNotice(++noticeId, message, kind)) }
     private fun showLoadError(error: Throwable) = _state.update { it.copy(isLoading = false, error = error.clubMessage()) }

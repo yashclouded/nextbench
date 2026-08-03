@@ -83,11 +83,14 @@ import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.app.chat.PreparedChatAttachment
 import com.nextbench.app.chat.ChatVoicePlaybackState
 import com.nextbench.app.chat.VoiceMessageBubble
+import com.nextbench.app.chat.ChatLinkPreview
 import com.nextbench.app.chat.VoiceRecordingControls
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
+import com.nextbench.data.firebase.LinkPreview
+import com.nextbench.data.firebase.firstMessageUrl
 
 @Composable
 fun ClubChatScreen(
@@ -152,6 +155,7 @@ fun ClubChatScreen(
                                 ClubMessageBubble(
                                     message = message,
                                     isViewer = message.senderId == viewerId,
+                                    linkPreview = message.text?.let(::firstMessageUrl)?.let(state.linkPreviews::get),
                                     showSender = index == 0 || state.messages[index - 1].senderId != message.senderId,
                                     onOpenProfile = { if (message.senderId.isNotBlank()) onOpenProfile(message.senderId) },
                                     onLongPress = { viewModel.openMessageActions(message) },
@@ -268,6 +272,7 @@ private fun ClubConversationIntro(club: Club?) {
 private fun ClubMessageBubble(
     message: Message,
     isViewer: Boolean,
+    linkPreview: LinkPreview?,
     showSender: Boolean,
     onOpenProfile: () -> Unit,
     onLongPress: () -> Unit,
@@ -318,6 +323,9 @@ private fun ClubMessageBubble(
                     }
                     MessageType.Voice -> VoiceMessageBubble(message, isViewer, playback, onToggleVoice, onSeekVoice, onCycleVoiceSpeed)
                     MessageType.Text -> if (!message.text.isNullOrBlank()) Text(message.text.orEmpty(), style = MaterialTheme.typography.bodyLarge, color = textColor)
+                }
+                if (!message.isDeletedForEveryone && linkPreview != null) {
+                    ChatLinkPreview(preview = linkPreview, isViewer = isViewer, onOpen = { url -> openClubAttachment(context, url) })
                 }
                 if (message.reactions.isNotEmpty()) Text(message.reactions.entries.joinToString("  ") { (emoji, users) -> "$emoji ${users.size}" }, style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.78f))
                 Text(message.createdAt?.toDate()?.time?.let(::formatRelativeTime) ?: "sending", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))

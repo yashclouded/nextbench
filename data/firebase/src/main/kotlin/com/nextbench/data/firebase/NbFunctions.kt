@@ -81,6 +81,9 @@ class NbFunctions @Inject constructor(
 
     suspend fun getLandingStats(): Map<String, Any?> = callMap("getLandingStats")
 
+    suspend fun getLinkPreview(url: String): Map<String, Any?> =
+        callMap("getLinkPreview", mapOf("url" to url))
+
     suspend fun deletePostCascade(postId: String): Boolean =
         callMap("deletePostCascade", mapOf("postId" to postId))["success"] as? Boolean ?: false
 }
