@@ -178,6 +178,21 @@ class ChatStateTest {
     }
 
     @Test
+    fun `swipe reply requires threshold and remains disabled for selection or deleted messages`() {
+        assertFalse(shouldTriggerSwipeReply(offsetPx = 63f, thresholdPx = 64f, selectionMode = false, deleted = false))
+        assertTrue(shouldTriggerSwipeReply(offsetPx = 64f, thresholdPx = 64f, selectionMode = false, deleted = false))
+        assertFalse(shouldTriggerSwipeReply(offsetPx = 80f, thresholdPx = 64f, selectionMode = true, deleted = false))
+        assertFalse(shouldTriggerSwipeReply(offsetPx = 80f, thresholdPx = 64f, selectionMode = false, deleted = true))
+    }
+
+    @Test
+    fun `jump to latest appears only when the reader is away from the final message`() {
+        assertFalse(shouldShowJumpToLatest(totalItems = 0, lastVisibleIndex = null))
+        assertFalse(shouldShowJumpToLatest(totalItems = 12, lastVisibleIndex = 10))
+        assertTrue(shouldShowJumpToLatest(totalItems = 12, lastVisibleIndex = 9))
+    }
+
+    @Test
     fun `message selection derives stable messages in conversation order`() {
         val first = Message(id = "first", senderId = "viewer")
         val second = Message(id = "second", senderId = "other")

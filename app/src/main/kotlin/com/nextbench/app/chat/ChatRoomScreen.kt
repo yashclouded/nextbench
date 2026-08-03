@@ -14,11 +14,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +34,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,9 +61,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +82,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -106,7 +115,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun ChatRoomScreen(
@@ -124,6 +135,15 @@ fun ChatRoomScreen(
     var showAttachmentPicker by remember { mutableStateOf(false) }
     var initialScrollComplete by remember { mutableStateOf(false) }
     var typingClock by remember { mutableStateOf(System.currentTimeMillis()) }
+    val scrollScope = rememberCoroutineScope()
+    val showJumpToLatest by remember {
+        derivedStateOf {
+            shouldShowJumpToLatest(
+                totalItems = listState.layoutInfo.totalItemsCount,
+                lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index,
+            )
+        }
+    }
 
     LaunchedEffect(user?.uid) { viewModel.syncViewer(user) }
     DisposableEffect(viewModel, lifecycleOwner) {
@@ -242,6 +262,7 @@ fun ChatRoomScreen(
                                 selectionMode = state.selectionMode,
                                 selected = message.id in state.selectedMessageIds,
                                 onToggleSelection = { viewModel.selectMessage(message) },
+                                onReply = { viewModel.setReplyTo(message) },
                                 onOpenAttachment = { url -> openAttachment(context, url) },
                                 playback = state.voicePlayback,
                                 onToggleVoice = viewModel::toggleVoicePlayback,
@@ -251,6 +272,24 @@ fun ChatRoomScreen(
                                     { viewModel.markMessageRead(message.id) }
                                 } else null,
                             )
+                        }
+                    }
+                    if (showJumpToLatest) {
+                        Surface(
+                            color = NbTheme.colors.surfaceCard,
+                            shape = RoundedCornerShape(NbDimens.radiusFull),
+                            shadowElevation = 3.dp,
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(NbDimens.space16),
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                                    if (lastIndex >= 0) scrollScope.launch { listState.animateScrollToItem(lastIndex) }
+                                },
+                                modifier = Modifier.size(44.dp).semantics { contentDescription = "Jump to latest message" },
+                            ) {
+                                Icon(NbIcons.ArrowDown, contentDescription = null, tint = NbTheme.colors.brandTeal, modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
                 }
@@ -543,6 +582,7 @@ private fun MessageBubble(
     selectionMode: Boolean,
     selected: Boolean,
     onToggleSelection: () -> Unit,
+    onReply: () -> Unit,
     onOpenAttachment: (String) -> Unit,
     playback: ChatVoicePlaybackState,
     onToggleVoice: (Message) -> Unit,
@@ -551,13 +591,46 @@ private fun MessageBubble(
     onRead: (() -> Unit)?,
 ) {
     LaunchedEffect(message.id, message.readBy) { onRead?.invoke() }
+    val density = LocalDensity.current
+    val gestureScope = rememberCoroutineScope()
+    var swipeOffset by remember(message.id) { mutableFloatStateOf(0f) }
+    val swipeThresholdPx = with(density) { 64.dp.toPx() }
+    val maxSwipePx = with(density) { 84.dp.toPx() }
     val shape = if (isViewer) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
     val bubbleColor = if (isViewer) NbTheme.colors.brandTeal else NbTheme.colors.surfaceCard
     val textColor = if (isViewer) Color.White else NbTheme.colors.ink
     Box(modifier = Modifier.fillMaxWidth()) {
+        if (!selectionMode && !message.isDeletedForEveryone) {
+            Icon(
+                NbIcons.Reply,
+                contentDescription = null,
+                tint = NbTheme.colors.brandTeal.copy(alpha = (swipeOffset / swipeThresholdPx).coerceIn(0f, 1f)),
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = NbDimens.space12).size(20.dp),
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .offset { IntOffset(swipeOffset.roundToInt(), 0) }
+                .pointerInput(message.id, selectionMode, message.isDeletedForEveryone) {
+                    if (selectionMode || message.isDeletedForEveryone) return@pointerInput
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (shouldTriggerSwipeReply(swipeOffset, swipeThresholdPx, selectionMode, message.isDeletedForEveryone)) onReply()
+                            val start = swipeOffset
+                            gestureScope.launch { animate(start, 0f, animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f)) { value, _ -> swipeOffset = value } }
+                        },
+                        onDragCancel = {
+                            val start = swipeOffset
+                            gestureScope.launch { animate(start, 0f, animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f)) { value, _ -> swipeOffset = value } }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            val next = (swipeOffset + dragAmount).coerceIn(0f, maxSwipePx)
+                            if (next != swipeOffset) change.consume()
+                            swipeOffset = next
+                        },
+                    )
+                }
                 .clip(RoundedCornerShape(NbDimens.radiusSm))
                 .background(if (selected) NbTheme.colors.brandTeal.copy(alpha = 0.08f) else Color.Transparent)
                 .padding(
@@ -672,6 +745,12 @@ private fun MessageBubble(
         }
     }
 }
+
+internal fun shouldTriggerSwipeReply(offsetPx: Float, thresholdPx: Float, selectionMode: Boolean, deleted: Boolean): Boolean =
+    !selectionMode && !deleted && thresholdPx > 0f && offsetPx >= thresholdPx
+
+internal fun shouldShowJumpToLatest(totalItems: Int, lastVisibleIndex: Int?): Boolean =
+    totalItems > 1 && (lastVisibleIndex ?: -1) < totalItems - 2
 
 @Composable
 private fun SelectionIndicator(selected: Boolean) {
