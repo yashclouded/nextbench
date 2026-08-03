@@ -101,6 +101,22 @@ class ClubsStateTest {
     }
 
     @Test
+    fun `role actions require valid lead-managed targets`() {
+        val state = ClubSettingsUiState(
+            club = Club(leadId = "lead", coLeadIds = listOf("co"), memberIds = listOf("lead", "co", "member")),
+        )
+
+        assertTrue(state.canBeginRoleAction("lead", ClubRoleAction.Promote, "member"))
+        assertFalse(state.canBeginRoleAction("lead", ClubRoleAction.Promote, "co"))
+        assertTrue(state.canBeginRoleAction("lead", ClubRoleAction.Demote, "co"))
+        assertTrue(state.canBeginRoleAction("lead", ClubRoleAction.Transfer, "member"))
+        assertFalse(state.canBeginRoleAction("lead", ClubRoleAction.Transfer, "lead"))
+        assertTrue(state.canBeginRoleAction("co", ClubRoleAction.Remove, "member"))
+        assertFalse(state.canBeginRoleAction("co", ClubRoleAction.Remove, "co"))
+        assertFalse(state.canBeginRoleAction("co", ClubRoleAction.Remove, "lead"))
+    }
+
+    @Test
     fun `club creation requires a useful name and stable visibility`() {
         assertFalse(ClubsUiState(clubName = " ").canCreate)
         assertTrue(ClubsUiState(clubName = "Study group").canCreate)

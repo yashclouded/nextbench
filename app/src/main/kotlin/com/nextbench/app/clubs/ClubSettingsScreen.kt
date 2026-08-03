@@ -54,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nextbench.core.designsystem.NbButton
 import com.nextbench.core.designsystem.NbButtonVariant
+import com.nextbench.core.designsystem.NbAvatar
 import com.nextbench.core.designsystem.NbBottomSheet
 import com.nextbench.core.designsystem.NbDimens
 import com.nextbench.core.designsystem.NbIcons
@@ -107,6 +108,15 @@ fun ClubSettingsScreen(
                         item { ClubSettingsSummary(club) }
                         item { ClubInviteCard(context, club, state.isLead(userId)) }
                         item {
+                            ClubMemberManagement(
+                                club = club,
+                                viewerId = userId,
+                                members = state.members,
+                                managing = state.isManagingRole,
+                                onOpenActions = viewModel::openMemberActions,
+                            )
+                        }
+                        item {
                             if (state.isLead(userId)) {
                                 ClubLeadSettings(
                                     club = club,
@@ -132,7 +142,7 @@ fun ClubSettingsScreen(
                                 Column(modifier = Modifier.fillMaxWidth().padding(NbDimens.space16), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
                                     Text(if (state.isLead(userId)) "Leadership" else "Leave club", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
                                     Text(
-                                        if (state.isLead(userId)) "Transfer leadership or delete the club from the NextBench website before leaving."
+                                        if (state.isLead(userId)) "Transfer leadership to another member before leaving, or manage the club from the NextBench website."
                                         else "You will stop receiving club updates and lose access to its conversation.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = NbTheme.colors.inkMuted,
@@ -163,6 +173,129 @@ fun ClubSettingsScreen(
                 NbButton("Leave club", onClick = { viewModel.leaveClub() }, modifier = Modifier.fillMaxWidth(), loading = state.isLeaving)
                 NbButton("Cancel", onClick = { confirmLeave = false }, modifier = Modifier.fillMaxWidth(), enabled = !state.isLeaving, variant = NbButtonVariant.Ghost)
             }
+        }
+    }
+    val roleAction = state.roleAction
+    if (roleAction != null && state.roleTargetId != null) {
+        NbBottomSheet(onDismiss = viewModel::cancelRoleAction) {
+            Column(
+                modifier = Modifier.padding(horizontal = NbDimens.space20, vertical = NbDimens.space8),
+                verticalArrangement = Arrangement.spacedBy(NbDimens.space16),
+            ) {
+                Text(
+                    text = when (roleAction) {
+                        ClubRoleAction.Promote -> "Promote member?"
+                        ClubRoleAction.Demote -> "Demote co-lead?"
+                        ClubRoleAction.Transfer -> "Transfer leadership?"
+                        ClubRoleAction.Remove -> "Remove member?"
+                    },
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = NbTheme.colors.ink,
+                )
+                Text(
+                    text = when (roleAction) {
+                        ClubRoleAction.Promote -> "They will be able to help manage this club."
+                        ClubRoleAction.Demote -> "They will keep membership but lose co-lead permissions."
+                        ClubRoleAction.Transfer -> "You will remain a member and they will become the new club lead."
+                        ClubRoleAction.Remove -> "They will lose access to this club and its conversation."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NbTheme.colors.inkMuted,
+                )
+                NbButton(
+                    text = when (roleAction) {
+                        ClubRoleAction.Promote -> "Promote"
+                        ClubRoleAction.Demote -> "Demote"
+                        ClubRoleAction.Transfer -> "Transfer leadership"
+                        ClubRoleAction.Remove -> "Remove member"
+                    },
+                    onClick = { viewModel.confirmRoleAction() },
+                    loading = state.isManagingRole,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                NbButton("Cancel", onClick = viewModel::cancelRoleAction, enabled = !state.isManagingRole, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Ghost)
+            }
+        }
+    }
+    val actionTargetId = state.memberActionTargetId
+    if (actionTargetId != null) {
+        val member = state.members[actionTargetId]
+        NbBottomSheet(onDismiss = viewModel::closeMemberActions) {
+            Column(
+                modifier = Modifier.padding(horizontal = NbDimens.space20, vertical = NbDimens.space8),
+                verticalArrangement = Arrangement.spacedBy(NbDimens.space12),
+            ) {
+                Text(member?.name?.ifBlank { "Member actions" } ?: "Member actions", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = NbTheme.colors.ink)
+                ClubRoleAction.entries.filter { action -> state.canBeginRoleAction(userId, action, actionTargetId) }.forEach { action ->
+                    NbButton(
+                        text = when (action) {
+                            ClubRoleAction.Promote -> "Promote to co-lead"
+                            ClubRoleAction.Demote -> "Demote to member"
+                            ClubRoleAction.Transfer -> "Transfer leadership"
+                            ClubRoleAction.Remove -> "Remove from club"
+                        },
+                        onClick = { viewModel.beginRoleAction(action, actionTargetId) },
+                        modifier = Modifier.fillMaxWidth(),
+                        variant = if (action == ClubRoleAction.Remove) NbButtonVariant.Ghost else NbButtonVariant.Secondary,
+                    )
+                }
+                NbButton("Cancel", onClick = viewModel::closeMemberActions, modifier = Modifier.fillMaxWidth(), variant = NbButtonVariant.Ghost)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClubMemberManagement(
+    club: Club,
+    viewerId: String?,
+    members: Map<String, UserData>,
+    managing: Boolean,
+    onOpenActions: (String) -> Unit,
+) {
+    val canManage = viewerId == club.leadId || viewerId in club.coLeadIds
+    Surface(color = NbTheme.colors.surfaceCard, shape = RoundedCornerShape(NbDimens.radiusMd), border = BorderStroke(1.dp, NbTheme.colors.border)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(NbDimens.space16), verticalArrangement = Arrangement.spacedBy(NbDimens.space12)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(NbIcons.Profile, contentDescription = null, tint = NbTheme.colors.brandTeal, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(NbDimens.space8))
+                Text("Members", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                Spacer(Modifier.weight(1f))
+                Text("${club.memberCount}", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold), color = NbTheme.colors.inkMuted)
+            }
+            if (!canManage) {
+                Text("Only the lead can change roles. Leads and co-leads can remove ordinary members.", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
+            }
+            club.memberIds.take(50).forEach { memberId ->
+                val role = when {
+                    memberId == club.leadId -> "Lead"
+                    memberId in club.coLeadIds -> "Co-lead"
+                    else -> "Member"
+                }
+                val isSelf = memberId == viewerId
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space8)) {
+                    val member = members[memberId]
+                    NbAvatar(imageUrl = member?.profilePicture, name = member?.name.orEmpty().ifBlank { "Member" }, size = 38.dp)
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
+                        Text(if (isSelf) "You" else member?.name?.ifBlank { "Member" } ?: "Member", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink)
+                        Text(role, style = MaterialTheme.typography.labelSmall, color = if (role == "Lead") NbTheme.colors.brandPink else NbTheme.colors.inkMuted)
+                    }
+                    val hasActions = !managing && ClubRoleAction.entries.any { action ->
+                        when (action) {
+                            ClubRoleAction.Promote -> viewerId == club.leadId && role == "Member"
+                            ClubRoleAction.Demote -> viewerId == club.leadId && role == "Co-lead"
+                            ClubRoleAction.Transfer -> viewerId == club.leadId && !isSelf && role != "Lead"
+                            ClubRoleAction.Remove -> !isSelf && role != "Lead" && (viewerId == club.leadId || viewerId in club.coLeadIds) && !(viewerId in club.coLeadIds && role == "Co-lead")
+                        }
+                    }
+                    if (hasActions) {
+                        IconButton(onClick = { onOpenActions(memberId) }, modifier = Modifier.size(44.dp).semantics { contentDescription = "Actions for ${member?.name.orEmpty().ifBlank { "member" }}" }) {
+                            Icon(NbIcons.More, contentDescription = null, tint = NbTheme.colors.inkMuted, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+            if (club.memberIds.size > 50) Text("Showing the first 50 members.", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkFaint)
         }
     }
 }

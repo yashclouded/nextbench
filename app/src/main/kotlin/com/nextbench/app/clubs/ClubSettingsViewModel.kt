@@ -24,16 +24,34 @@ data class ClubSettingsNotice(val id: Long, val message: String, val isError: Bo
 @Immutable
 data class ClubSettingsUiState(
     val club: Club? = null,
+    val members: Map<String, UserData> = emptyMap(),
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val isLeaving: Boolean = false,
+    val isManagingRole: Boolean = false,
+    val memberActionTargetId: String? = null,
+    val roleTargetId: String? = null,
+    val roleAction: ClubRoleAction? = null,
     val leftClub: Boolean = false,
     val error: String? = null,
     val notice: ClubSettingsNotice? = null,
 ) {
     fun isLead(uid: String?): Boolean = !uid.isNullOrBlank() && uid == club?.leadId
     fun isMember(uid: String?): Boolean = !uid.isNullOrBlank() && uid in club?.memberIds.orEmpty()
+
+    fun canBeginRoleAction(viewerId: String?, action: ClubRoleAction, targetId: String): Boolean {
+        val currentClub = club ?: return false
+        if (viewerId.isNullOrBlank() || isManagingRole) return false
+        return when (action) {
+            ClubRoleAction.Promote -> viewerId == currentClub.leadId && targetId in currentClub.memberIds && targetId != currentClub.leadId && targetId !in currentClub.coLeadIds
+            ClubRoleAction.Demote -> viewerId == currentClub.leadId && targetId in currentClub.coLeadIds
+            ClubRoleAction.Transfer -> viewerId == currentClub.leadId && targetId in currentClub.memberIds && targetId != currentClub.leadId
+            ClubRoleAction.Remove -> (viewerId == currentClub.leadId || viewerId in currentClub.coLeadIds) && targetId in currentClub.memberIds && targetId != currentClub.leadId && targetId != viewerId && (viewerId == currentClub.leadId || targetId !in currentClub.coLeadIds)
+        }
+    }
 }
+
+enum class ClubRoleAction { Promote, Demote, Transfer, Remove }
 
 @HiltViewModel
 class ClubSettingsViewModel @Inject constructor(
@@ -46,12 +64,14 @@ class ClubSettingsViewModel @Inject constructor(
 
     private var viewer: UserData? = null
     private var clubJob: Job? = null
+    private var loadedMemberIds: List<String> = emptyList()
     private var noticeId = 0L
 
     fun syncViewer(user: UserData?) {
         if (viewer?.uid == user?.uid && (viewer == null) == (user == null)) return
         viewer = user
         clubJob?.cancel()
+        loadedMemberIds = emptyList()
         _state.value = ClubSettingsUiState(isLoading = user != null)
         val uid = user?.uid ?: return
         clubJob = viewModelScope.launch {
@@ -64,6 +84,15 @@ class ClubSettingsViewModel @Inject constructor(
                             isLoading = false,
                             error = if (club == null) "This club is no longer available." else null,
                         )
+                    }
+                    val visibleMemberIds = club?.memberIds.orEmpty().take(50)
+                    if (visibleMemberIds != loadedMemberIds) {
+                        loadedMemberIds = visibleMemberIds
+                        repository.loadPublicMembers(uid, visibleMemberIds).onSuccess { users ->
+                            if (loadedMemberIds == visibleMemberIds) {
+                                _state.update { current -> current.copy(members = users.associateBy(UserData::uid)) }
+                            }
+                        }
                     }
                 }
         }
@@ -108,6 +137,61 @@ class ClubSettingsViewModel @Inject constructor(
             repository.leaveClub(uid, clubId).fold(
                 onSuccess = { _state.update { it.copy(isLeaving = false, leftClub = true) } },
                 onFailure = { error -> _state.update { it.copy(isLeaving = false) }; showNotice(error.clubMessage(), true) },
+            )
+        }
+        return true
+    }
+
+    fun beginRoleAction(action: ClubRoleAction, targetId: String): Boolean {
+        val uid = viewer?.uid ?: return false
+        if (!state.value.canBeginRoleAction(uid, action, targetId)) return false
+        _state.update { it.copy(memberActionTargetId = null, roleTargetId = targetId, roleAction = action, error = null) }
+        return true
+    }
+
+    fun openMemberActions(targetId: String): Boolean {
+        val uid = viewer?.uid ?: return false
+        if (ClubRoleAction.entries.none { state.value.canBeginRoleAction(uid, it, targetId) }) return false
+        _state.update { it.copy(memberActionTargetId = targetId) }
+        return true
+    }
+
+    fun closeMemberActions() = _state.update { it.copy(memberActionTargetId = null) }
+
+    fun cancelRoleAction() {
+        if (!state.value.isManagingRole) _state.update { it.copy(roleTargetId = null, roleAction = null) }
+    }
+
+    fun confirmRoleAction(): Boolean {
+        val uid = viewer?.uid ?: return false
+        val snapshot = state.value
+        val targetId = snapshot.roleTargetId ?: return false
+        val action = snapshot.roleAction ?: return false
+        if (snapshot.isManagingRole) return false
+        _state.update { it.copy(isManagingRole = true, error = null) }
+        viewModelScope.launch {
+            val result = when (action) {
+                ClubRoleAction.Promote -> repository.promoteCoLead(uid, clubId, targetId)
+                ClubRoleAction.Demote -> repository.demoteCoLead(uid, clubId, targetId)
+                ClubRoleAction.Transfer -> repository.transferLeadership(uid, clubId, targetId)
+                ClubRoleAction.Remove -> repository.removeMember(uid, clubId, targetId)
+            }
+            result.fold(
+                onSuccess = {
+                    _state.update { it.copy(isManagingRole = false, roleTargetId = null, roleAction = null) }
+                    showNotice(
+                        when (action) {
+                            ClubRoleAction.Promote -> "Member promoted to co-lead."
+                            ClubRoleAction.Demote -> "Co-lead demoted to member."
+                            ClubRoleAction.Transfer -> "Leadership transferred."
+                            ClubRoleAction.Remove -> "Member removed from the club."
+                        },
+                    )
+                },
+                onFailure = { error ->
+                    _state.update { it.copy(isManagingRole = false) }
+                    showNotice(error.clubMessage(), true)
+                },
             )
         }
         return true

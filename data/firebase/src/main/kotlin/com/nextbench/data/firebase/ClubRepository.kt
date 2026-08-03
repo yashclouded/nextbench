@@ -26,10 +26,12 @@ import kotlinx.coroutines.tasks.await
 class ClubRepository @Inject constructor(
     private val authProvider: Provider<FirebaseAuth>,
     private val refsProvider: Provider<FirestoreRefs>,
+    private val functionsProvider: Provider<NbFunctions>,
     private val uploader: CloudinaryUploader,
 ) {
     private val auth get() = authProvider.get()
     private val refs get() = refsProvider.get()
+    private val functions get() = functionsProvider.get()
 
     fun observeMemberClubs(uid: String): Flow<List<Club>> = configuredFlow(uid) {
         refs.clubs
@@ -63,6 +65,12 @@ class ClubRepository @Inject constructor(
 
     fun observeClub(clubId: String, uid: String): Flow<Club?> = configuredFlow(uid) {
         refs.club(clubId).snapshotFlow().map { it.toClub() }
+    }
+
+    suspend fun loadPublicMembers(uid: String, memberIds: List<String>): Result<List<UserData>> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        functions.getPublicUsers(memberIds).mapNotNull(Map<String, Any?>::toPublicUser)
     }
 
     fun observeMessages(clubId: String, uid: String): Flow<List<Message>> = configuredFlow(uid) {
@@ -155,6 +163,7 @@ class ClubRepository @Inject constructor(
             val snapshot = transaction.get(clubRef)
             val club = snapshot.toClub() ?: error("This club is no longer available.")
             require(uid in club.memberIds) { "You are not a member of this club." }
+            require(uid != club.leadId) { "Transfer leadership before leaving the club." }
             transaction.update(clubRef, clubLeaveUpdatePayload(uid, club.memberCount))
         }.await()
     }
@@ -189,6 +198,51 @@ class ClubRepository @Inject constructor(
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).await()
+    }
+
+    suspend fun promoteCoLead(uid: String, clubId: String, targetId: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val clubRef = refs.club(clubId)
+        val club = clubRef.get().await().toClub() ?: error("This club is no longer available.")
+        require(uid == club.leadId) { "Only the club lead can manage roles." }
+        require(targetId in club.memberIds) { "Choose a current club member." }
+        require(targetId != club.leadId) { "The club lead already has the highest role." }
+        clubRef.update(clubRoleUpdatePayload(targetId, RoleUpdate.Promote)).await()
+    }
+
+    suspend fun demoteCoLead(uid: String, clubId: String, targetId: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val clubRef = refs.club(clubId)
+        val club = clubRef.get().await().toClub() ?: error("This club is no longer available.")
+        require(uid == club.leadId) { "Only the club lead can manage roles." }
+        require(targetId in club.coLeadIds) { "That member is not a co-lead." }
+        clubRef.update(clubRoleUpdatePayload(targetId, RoleUpdate.Demote)).await()
+    }
+
+    suspend fun transferLeadership(uid: String, clubId: String, targetId: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val clubRef = refs.club(clubId)
+        val club = clubRef.get().await().toClub() ?: error("This club is no longer available.")
+        require(uid == club.leadId) { "Only the club lead can transfer leadership." }
+        require(targetId in club.memberIds) { "Choose a current club member." }
+        require(targetId != uid) { "Choose another member to receive leadership." }
+        clubRef.update(clubLeadershipTransferPayload(targetId)).await()
+    }
+
+    suspend fun removeMember(uid: String, clubId: String, targetId: String): Result<Unit> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(uid)
+        val clubRef = refs.club(clubId)
+        val club = clubRef.get().await().toClub() ?: error("This club is no longer available.")
+        require(uid == club.leadId || uid in club.coLeadIds) { "Only club leads can remove members." }
+        require(targetId in club.memberIds) { "That member is no longer in the club." }
+        require(targetId != club.leadId) { "The club lead cannot be removed." }
+        require(targetId != uid) { "Use Leave club to remove yourself." }
+        require(uid == club.leadId || targetId !in club.coLeadIds) { "Only the club lead can remove a co-lead." }
+        clubRef.update(clubMemberRemovalPayload(targetId)).await()
     }
 
     suspend fun sendText(clubId: String, sender: UserData, text: String, replyTo: Message? = null): Result<Message> = runCatching {
@@ -490,6 +544,29 @@ internal fun clubLeaveUpdatePayload(uid: String, memberCount: Int): Map<String, 
     "memberIds" to FieldValue.arrayRemove(uid),
     "coLeadIds" to FieldValue.arrayRemove(uid),
     "memberCount" to (memberCount - 1).coerceAtLeast(0),
+    "updatedAt" to FieldValue.serverTimestamp(),
+)
+
+internal enum class RoleUpdate { Promote, Demote }
+
+internal fun clubRoleUpdatePayload(targetId: String, update: RoleUpdate): Map<String, Any?> = mapOf(
+    "coLeadIds" to when (update) {
+        RoleUpdate.Promote -> FieldValue.arrayUnion(targetId)
+        RoleUpdate.Demote -> FieldValue.arrayRemove(targetId)
+    },
+    "updatedAt" to FieldValue.serverTimestamp(),
+)
+
+internal fun clubLeadershipTransferPayload(newLeadId: String): Map<String, Any?> = mapOf(
+    "leadId" to newLeadId,
+    "coLeadIds" to FieldValue.arrayRemove(newLeadId),
+    "updatedAt" to FieldValue.serverTimestamp(),
+)
+
+internal fun clubMemberRemovalPayload(targetId: String): Map<String, Any?> = mapOf(
+    "memberIds" to FieldValue.arrayRemove(targetId),
+    "coLeadIds" to FieldValue.arrayRemove(targetId),
+    "memberCount" to FieldValue.increment(-1),
     "updatedAt" to FieldValue.serverTimestamp(),
 )
 

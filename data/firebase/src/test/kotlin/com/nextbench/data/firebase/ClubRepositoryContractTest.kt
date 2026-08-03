@@ -28,6 +28,31 @@ class ClubRepositoryContractTest {
     }
 
     @Test
+    fun `leadership transfer payload removes the new lead from co-leads`() {
+        val payload = clubLeadershipTransferPayload("member-2")
+
+        assertEquals("member-2", payload["leadId"])
+        assertTrue(payload.containsKey("coLeadIds"))
+        assertTrue(payload.containsKey("updatedAt"))
+    }
+
+    @Test
+    fun `role payloads match website field contracts`() {
+        val promote = clubRoleUpdatePayload("member-1", RoleUpdate.Promote)
+        val demote = clubRoleUpdatePayload("member-1", RoleUpdate.Demote)
+        val transfer = clubLeadershipTransferPayload("member-2")
+        val remove = clubMemberRemovalPayload("member-3")
+
+        assertTrue(promote.containsKey("coLeadIds"))
+        assertTrue(demote.containsKey("coLeadIds"))
+        assertEquals("member-2", transfer["leadId"])
+        assertTrue(transfer.containsKey("coLeadIds"))
+        assertTrue(remove.containsKey("memberIds"))
+        assertTrue(remove.containsKey("coLeadIds"))
+        assertTrue(remove.containsKey("memberCount"))
+    }
+
+    @Test
     fun `invite codes normalize whitespace and case`() {
         assertEquals("ab12Cd34", normalizeClubInviteCode(" ab12 Cd34-extra "))
     }
