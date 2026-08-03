@@ -48,4 +48,12 @@ class NbAppShellTest {
             assertFalse(state.canNavigateBack)
         }
     }
+
+    @Test
+    fun `pending shares wait on auth routes and reopen after authentication`() {
+        assertFalse(shouldOpenShareRoute(NbRoute.Login.path))
+        assertFalse(shouldOpenShareRoute(NbRoute.Verification.path))
+        assertFalse(shouldOpenShareRoute(NbRoute.Share.path))
+        assertTrue(shouldOpenShareRoute(NbRoute.Feed.path))
+    }
 }

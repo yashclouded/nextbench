@@ -1,5 +1,7 @@
 package com.nextbench.app.navigation
 
+import android.content.Intent
+
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -50,6 +52,7 @@ import com.nextbench.app.post.PostDetailScreen
 import com.nextbench.app.profile.ProfileScreen
 import com.nextbench.app.profile.PublicProfileScreen
 import com.nextbench.app.search.SearchScreen
+import com.nextbench.app.share.ShareTargetScreen
 import com.nextbench.data.firebase.SessionState
 import com.nextbench.app.ui.SplashScreen
 import com.nextbench.app.verification.VerificationScreen
@@ -87,6 +90,8 @@ fun NbNavHost(
     onboardingViewModel: OnboardingViewModel,
     onToggleTheme: () -> Unit,
     onFeedChromeVisibilityChanged: (Boolean) -> Unit = {},
+    pendingShareIntent: Intent? = null,
+    onShareIntentConsumed: (Intent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val session by authViewModel.session.collectAsStateWithLifecycle()
@@ -192,6 +197,26 @@ fun NbNavHost(
                     },
                     onOpenPost = { postId ->
                         navController.navigate(NbRoute.post(postId)) { launchSingleTop = true }
+                    },
+                )
+            }
+        }
+
+        composable(NbRoute.Share.path) {
+            GuardedDestination(navController, NbRoute.Share.path, authViewModel) {
+                ShareTargetScreen(
+                    user = (session as? SessionState.SignedIn)?.userData,
+                    incomingIntent = pendingShareIntent,
+                    onIntentConsumed = onShareIntentConsumed,
+                    onSent = { target ->
+                        val route = when (target.type) {
+                            com.nextbench.data.firebase.ForwardTargetType.Direct -> NbRoute.messages(target.id)
+                            com.nextbench.data.firebase.ForwardTargetType.Club -> NbRoute.clubMessages(target.id)
+                        }
+                        navController.navigate(route) {
+                            popUpTo(NbRoute.Share.path) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     },
                 )
             }

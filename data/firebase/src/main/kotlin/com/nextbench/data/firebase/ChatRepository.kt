@@ -348,8 +348,8 @@ class ChatRepository @Inject constructor(
     suspend fun sendVideo(roomId: String, sender: UserData, file: File, width: Int, height: Int, durationMs: Long? = null, caption: String? = null, replyTo: Message? = null): Result<Message> =
         sendAttachment(roomId, sender, file, caption, replyTo, AttachmentKind.Video(width, height, durationMs))
 
-    suspend fun sendFile(roomId: String, sender: UserData, file: File, mime: String, caption: String? = null, pages: Int? = null, replyTo: Message? = null): Result<Message> =
-        sendAttachment(roomId, sender, file, caption, replyTo, AttachmentKind.File(mime, pages))
+    suspend fun sendFile(roomId: String, sender: UserData, file: File, mime: String, caption: String? = null, pages: Int? = null, replyTo: Message? = null, displayName: String = file.name): Result<Message> =
+        sendAttachment(roomId, sender, file, caption, replyTo, AttachmentKind.File(mime, pages), normalizedAttachmentDisplayName(displayName, file.name))
 
     suspend fun sendVoice(
         roomId: String,
@@ -725,6 +725,7 @@ class ChatRepository @Inject constructor(
         caption: String?,
         replyTo: Message?,
         kind: AttachmentKind,
+        displayName: String = file.name,
     ): Result<Message> = runCatching {
         ensureConfigured()
         requireAuthenticated(sender.uid)
@@ -741,7 +742,7 @@ class ChatRepository @Inject constructor(
             is AttachmentKind.File -> uploader.upload(file, "nextbench/chat_files/$roomId", if (kind.mime == "application/pdf") CloudinaryResourceType.Image else CloudinaryResourceType.Raw)
         }
         val messageRef = refs.messages(roomId).document()
-        val payload = attachmentMessagePayload(sender, messageRef.id, uploaded, kind, file.name, file.length(), caption, replyTo)
+        val payload = attachmentMessagePayload(sender, messageRef.id, uploaded, kind, displayName, file.length(), caption, replyTo)
         val label = kind.label
         val batch = roomRef.firestore.batch()
         batch.set(messageRef, payload)
@@ -756,7 +757,7 @@ class ChatRepository @Inject constructor(
             type = kind.type,
             image = (kind as? AttachmentKind.Image)?.let { uploaded.url },
             video = (kind as? AttachmentKind.Video)?.let { VideoAttachment(uploaded.url, w = it.width, h = it.height, duration = it.durationMs ?: 0L) },
-            file = (kind as? AttachmentKind.File)?.let { FileAttachment(uploaded.url, file.name, file.length(), it.mime, uploaded.pages ?: it.pages) },
+            file = (kind as? AttachmentKind.File)?.let { FileAttachment(uploaded.url, displayName, file.length(), it.mime, uploaded.pages ?: it.pages) },
             createdAt = Timestamp.now(),
             clientMessageId = "android_${messageRef.id}",
             status = MessageStatus.Sent.raw,
@@ -1062,6 +1063,7 @@ private fun attachmentMessagePayload(
     caption: String?,
     replyTo: Message?,
 ): Map<String, Any?> = buildMap {
+    val safeFileName = normalizedAttachmentDisplayName(fileName, "Document")
     put("senderId", sender.uid)
     put("senderName", sender.name.ifBlank { "Student" })
     put("senderAvatar", sender.profilePicture)
@@ -1074,13 +1076,21 @@ private fun attachmentMessagePayload(
         is AttachmentKind.Image -> put("image", mapOf("url" to uploaded.url, "w" to kind.width, "h" to kind.height))
         is AttachmentKind.Video -> put("video", mapOf("url" to uploaded.url, "w" to kind.width, "h" to kind.height, "duration" to (kind.durationMs ?: 0L)))
         is AttachmentKind.File -> {
-            val fileMap = mutableMapOf<String, Any>("url" to uploaded.url, "name" to fileName, "size" to fileSize, "mime" to kind.mime)
+            val fileMap = mutableMapOf<String, Any>("url" to uploaded.url, "name" to safeFileName, "size" to fileSize, "mime" to kind.mime)
             (uploaded.pages ?: kind.pages)?.let { fileMap["pages"] = it }
             put("file", fileMap)
         }
     }
     putAll(replyPayload(replyTo))
 }
+
+internal fun normalizedAttachmentDisplayName(name: String, fallback: String = "Document"): String =
+    name
+        .substringAfterLast('/')
+        .substringAfterLast('\\')
+        .trim()
+        .take(180)
+        .ifBlank { fallback.substringAfterLast('/').substringAfterLast('\\').trim().take(180).ifBlank { "Document" } }
 
 private fun replyPayload(replyTo: Message?): Map<String, Any?> = replyTo?.let {
     mapOf(

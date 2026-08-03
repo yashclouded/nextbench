@@ -16,6 +16,7 @@ class AuthGateTest {
         assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.Create.path))
         assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.EditItem.path))
         assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.MessagesRoom.path))
+        assertEquals(RouteRequirement.Verified, requirementForRoute(NbRoute.Share.path))
     }
 
     @Test

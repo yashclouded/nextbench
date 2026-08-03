@@ -29,7 +29,7 @@ fun requirementForRoute(path: String?): RouteRequirement = when {
     path == NbRoute.Profile.path || path == NbRoute.Wishlist.path || path == NbRoute.Notifications.path || path == NbRoute.Clubs.path ||
         path == NbRoute.Invite.path || path == NbRoute.Verification.path || path.startsWith("product/") ||
         path.startsWith("profile/") || path.startsWith("u/") || path.startsWith("club/") -> RouteRequirement.SignedIn
-    path == NbRoute.Create.path || path == NbRoute.Sell.path || path == NbRoute.Messages.path ||
+    path == NbRoute.Create.path || path == NbRoute.Sell.path || path == NbRoute.Messages.path || path == NbRoute.Share.path ||
         path.startsWith("edit-item/") || path.startsWith("messages/") ||
         path.startsWith("chat/") -> RouteRequirement.Verified
     else -> RouteRequirement.Public

@@ -20,11 +20,12 @@ private const val DarkThemeKey = "dark_theme"
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private var pendingDeepLinkIntent by mutableStateOf<Intent?>(null)
+    private var pendingExternalIntent by mutableStateOf<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        pendingExternalIntent = intent.takeIf(Intent::isNextBenchExternalIntent)
         val preferences = getSharedPreferences(PreferencesName, MODE_PRIVATE)
         setContent {
             val systemDarkTheme = isSystemInDarkTheme()
@@ -50,8 +51,10 @@ class MainActivity : ComponentActivity() {
                         darkThemeOverride = next
                         preferences.edit().putBoolean(DarkThemeKey, next).apply()
                     },
-                    pendingDeepLinkIntent = pendingDeepLinkIntent,
-                    onDeepLinkHandled = { pendingDeepLinkIntent = null },
+                    pendingExternalIntent = pendingExternalIntent,
+                    onExternalIntentHandled = { handledIntent ->
+                        if (pendingExternalIntent === handledIntent) pendingExternalIntent = null
+                    },
                 )
             }
         }
@@ -60,6 +63,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.data != null) pendingDeepLinkIntent = intent
+        if (intent.isNextBenchExternalIntent()) pendingExternalIntent = intent
     }
 }
+
+internal fun Intent.isNextBenchExternalIntent(): Boolean =
+    data != null || action == Intent.ACTION_SEND || action == Intent.ACTION_SEND_MULTIPLE

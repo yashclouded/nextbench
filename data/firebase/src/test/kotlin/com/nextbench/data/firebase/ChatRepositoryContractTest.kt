@@ -326,4 +326,12 @@ class ChatRepositoryContractTest {
         assertEquals(4096L, message?.file?.size)
         assertEquals(12, message?.file?.pages)
     }
+
+    @Test
+    fun `attachment display names remove paths cap length and preserve useful fallback`() {
+        assertEquals("Notes.pdf", normalizedAttachmentDisplayName("/cache/Notes.pdf"))
+        assertEquals("Slides.pptx", normalizedAttachmentDisplayName("C:\\temp\\Slides.pptx"))
+        assertEquals(180, normalizedAttachmentDisplayName("x".repeat(240)).length)
+        assertEquals("Document", normalizedAttachmentDisplayName("   "))
+    }
 }

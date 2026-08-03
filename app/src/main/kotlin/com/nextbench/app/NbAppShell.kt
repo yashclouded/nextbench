@@ -69,8 +69,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun NbAppShell(
     onToggleTheme: () -> Unit,
-    pendingDeepLinkIntent: Intent? = null,
-    onDeepLinkHandled: () -> Unit = {},
+    pendingExternalIntent: Intent? = null,
+    onExternalIntentHandled: (Intent) -> Unit = {},
     navController: NavHostController = rememberNavController(),
     authViewModel: AuthViewModel = hiltViewModel(),
     onboardingViewModel: OnboardingViewModel = hiltViewModel(),
@@ -90,12 +90,19 @@ fun NbAppShell(
 
     PushPermissionCoordinator(signedInUid)
     PresenceCoordinator(signedInUid, authViewModel::setPresence)
-    LaunchedEffect(pendingDeepLinkIntent, signedInUid, onboardingState.completed, currentPath) {
-        pendingDeepLinkIntent ?: return@LaunchedEffect
+    val pendingShareIntent = pendingExternalIntent?.takeIf { intent ->
+        intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE
+    }
+    LaunchedEffect(pendingExternalIntent, signedInUid, onboardingState.completed, currentPath) {
+        val externalIntent = pendingExternalIntent ?: return@LaunchedEffect
         val initialJourneyFinished = currentPath != NbRoute.Splash.path && currentPath != NbRoute.Onboarding.path
-        if (signedInUid != null && onboardingState.completed == true && initialJourneyFinished) {
-            navController.handleDeepLink(pendingDeepLinkIntent)
-            onDeepLinkHandled()
+        if (onboardingState.completed == true && initialJourneyFinished) {
+            if (externalIntent.action == Intent.ACTION_SEND || externalIntent.action == Intent.ACTION_SEND_MULTIPLE) {
+                if (shouldOpenShareRoute(currentPath)) navController.navigate(NbRoute.Share.path) { launchSingleTop = true }
+            } else if (signedInUid != null) {
+                navController.handleDeepLink(externalIntent)
+                onExternalIntentHandled(externalIntent)
+            }
         }
     }
 
@@ -145,10 +152,21 @@ fun NbAppShell(
             onFeedChromeVisibilityChanged = { visible ->
                 if (currentPath == NbRoute.Feed.path) feedChromeVisible = visible
             },
+            pendingShareIntent = pendingShareIntent,
+            onShareIntentConsumed = onExternalIntentHandled,
             modifier = Modifier.padding(innerPadding),
         )
     }
 }
+
+internal fun shouldOpenShareRoute(currentPath: String?): Boolean = currentPath !in setOf(
+    NbRoute.Share.path,
+    NbRoute.Login.path,
+    NbRoute.Signup.path,
+    NbRoute.OrgSignup.path,
+    NbRoute.Verification.path,
+    NbRoute.Auth.path,
+)
 
 @Composable
 private fun PresenceCoordinator(
@@ -211,6 +229,7 @@ private fun NbTopBar(
         path == NbRoute.Notifications.path -> "Notifications"
         path == NbRoute.Wishlist.path -> "Saved"
         path == NbRoute.Invite.path -> "Invite friends"
+        path == NbRoute.Share.path -> "Share to NextBench"
         path == NbRoute.Sell.path -> "List an item"
         path?.startsWith("edit-item/") == true -> "Edit listing"
         path?.startsWith("product/") == true -> "Listing"

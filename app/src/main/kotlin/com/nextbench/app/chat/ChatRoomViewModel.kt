@@ -492,7 +492,7 @@ class ChatRoomViewModel @Inject constructor(
             val result = when {
                 attachment.mimeType.startsWith("image/") -> repository.sendImage(roomId, user, attachment.file, attachment.width, attachment.height, snapshot.composerText, snapshot.replyTo)
                 attachment.mimeType.startsWith("video/") -> repository.sendVideo(roomId, user, attachment.file, attachment.width, attachment.height, attachment.durationMs, snapshot.composerText, snapshot.replyTo)
-                else -> repository.sendFile(roomId, user, attachment.file, attachment.mimeType, snapshot.composerText, replyTo = snapshot.replyTo)
+                else -> repository.sendFile(roomId, user, attachment.file, attachment.mimeType, snapshot.composerText, replyTo = snapshot.replyTo, displayName = attachment.displayName)
             }
             result.fold(
                 onSuccess = {

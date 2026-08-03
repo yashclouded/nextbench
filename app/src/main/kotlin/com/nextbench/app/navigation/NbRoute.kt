@@ -36,6 +36,7 @@ sealed class NbRoute(val path: String) {
     data object ClubSettings : NbRoute("club/{clubId}/settings")
     data object ClubJoin : NbRoute("club/join/{inviteCode}")
     data object Invite : NbRoute("invite")
+    data object Share : NbRoute("share")
 
     data object Login : NbRoute("login")
     data object Signup : NbRoute("signup")
