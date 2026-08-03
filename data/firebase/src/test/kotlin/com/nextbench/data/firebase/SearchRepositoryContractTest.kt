@@ -25,5 +25,19 @@ class SearchRepositoryContractTest {
         assertTrue(results.people.isEmpty())
         assertTrue(results.posts.isEmpty())
         assertTrue(results.listings.isEmpty())
+        assertTrue(results.clubs.isEmpty())
+    }
+
+    @Test
+    fun `search mapper preserves public club results`() {
+        val results = mapOf<String, Any?>(
+            "clubs" to listOf(
+                mapOf<String, Any?>("id" to "club-1", "name" to "Book Club", "school" to "North High", "memberCount" to 24L),
+            ),
+        ).toSearchResults()
+
+        assertEquals("club-1", results.clubs.single().id)
+        assertEquals("Book Club", results.clubs.single().name)
+        assertEquals(24, results.clubs.single().memberCount)
     }
 }

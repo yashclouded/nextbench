@@ -60,6 +60,7 @@ import com.nextbench.core.designsystem.NbPill
 import com.nextbench.core.designsystem.NbTextField
 import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.pressScale
+import com.nextbench.data.model.Club
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
@@ -70,6 +71,7 @@ fun SearchScreen(
     onOpenProfile: (String) -> Unit,
     onOpenPost: (String) -> Unit,
     onOpenListing: (String) -> Unit,
+    onOpenClub: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
@@ -87,7 +89,7 @@ fun SearchScreen(
             placeholder = "Search NextBench",
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { viewModel.retry() }),
+            keyboardActions = KeyboardActions(onSearch = { viewModel.submitQuery() }),
             leadingIcon = {
                 Icon(
                     NbIcons.Search,
@@ -114,7 +116,7 @@ fun SearchScreen(
         )
 
         val error = state.error
-        val hasResults = state.people.isNotEmpty() || state.posts.isNotEmpty() || state.listings.isNotEmpty()
+        val hasResults = state.people.isNotEmpty() || state.posts.isNotEmpty() || state.listings.isNotEmpty() || state.clubs.isNotEmpty()
         when {
             state.isLoading && !state.hasSearched -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -146,12 +148,21 @@ fun SearchScreen(
                     onOpenProfile = onOpenProfile,
                     onOpenPost = onOpenPost,
                     onOpenListing = onOpenListing,
+                    onOpenClub = onOpenClub,
+                    onUseRecentSearch = viewModel::useRecentSearch,
+                    onClearRecentSearches = viewModel::clearRecentSearches,
                 )
             }
 
             else -> {
                 SearchTabs(state, viewModel::selectTab)
-                SearchResults(state, onOpenProfile, onOpenPost, onOpenListing)
+                SearchResults(
+                    state = state,
+                    onOpenProfile = { id -> viewModel.recordCurrentQuery(); onOpenProfile(id) },
+                    onOpenPost = { id -> viewModel.recordCurrentQuery(); onOpenPost(id) },
+                    onOpenListing = { id -> viewModel.recordCurrentQuery(); onOpenListing(id) },
+                    onOpenClub = { id -> viewModel.recordCurrentQuery(); onOpenClub(id) },
+                )
             }
         }
     }
@@ -163,6 +174,9 @@ private fun DiscoveryResults(
     onOpenProfile: (String) -> Unit,
     onOpenPost: (String) -> Unit,
     onOpenListing: (String) -> Unit,
+    onOpenClub: (String) -> Unit,
+    onUseRecentSearch: (String) -> Unit,
+    onClearRecentSearches: () -> Unit,
 ) {
     val trending = state.posts.sortedWith(
         compareByDescending<Post> { it.isHot }
@@ -171,7 +185,7 @@ private fun DiscoveryResults(
     val books = state.listings.filter(Product::looksLikeBook)
     val featuredListings = (books.ifEmpty { state.listings }).take(10)
 
-    if (trending.isEmpty() && featuredListings.isEmpty() && state.people.isEmpty()) {
+    if (trending.isEmpty() && featuredListings.isEmpty() && state.people.isEmpty() && state.clubs.isEmpty() && state.recentSearches.isEmpty()) {
         NbEmptyState(
             icon = NbIcons.Search,
             title = "Nothing to discover yet",
@@ -186,6 +200,42 @@ private fun DiscoveryResults(
         contentPadding = PaddingValues(bottom = NbDimens.space24),
         verticalArrangement = Arrangement.spacedBy(NbDimens.space24),
     ) {
+        if (state.recentSearches.isNotEmpty()) {
+            item(key = "recent_header") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = NbDimens.space16),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(NbDimens.space2),
+                    ) {
+                        Text("Recent searches", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = NbTheme.colors.ink)
+                        Text("Pick up where you left off", style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = "Clear",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = NbTheme.colors.brandPink,
+                        modifier = Modifier.clickable(onClick = onClearRecentSearches).padding(NbDimens.space8),
+                    )
+                }
+            }
+            item(key = "recent_row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = NbDimens.space16),
+                    horizontalArrangement = Arrangement.spacedBy(NbDimens.space8),
+                ) {
+                    state.recentSearches.forEach { query ->
+                        item(key = "recent_$query") {
+                            NbPill(query, contentColor = NbTheme.colors.ink, modifier = Modifier.clickable { onUseRecentSearch(query) })
+                        }
+                    }
+                }
+            }
+        }
+
         if (trending.isNotEmpty()) {
             item(key = "trending_header") {
                 DiscoveryHeader(
@@ -241,6 +291,22 @@ private fun DiscoveryResults(
                         item(key = person.uid) {
                             DiscoveryPerson(person, onOpenProfile)
                         }
+                    }
+                }
+            }
+        }
+
+        if (state.clubs.isNotEmpty()) {
+            item(key = "clubs_header") {
+                DiscoveryHeader(title = "Clubs to explore", subtitle = "Find your next campus community")
+            }
+            item(key = "clubs_row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = NbDimens.space16),
+                    horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+                ) {
+                    state.clubs.take(8).forEach { club ->
+                        item(key = "club_${club.id}") { DiscoveryClub(club, onOpenClub) }
                     }
                 }
             }
@@ -444,11 +510,13 @@ private fun SearchResults(
     onOpenProfile: (String) -> Unit,
     onOpenPost: (String) -> Unit,
     onOpenListing: (String) -> Unit,
+    onOpenClub: (String) -> Unit,
 ) {
     val isEmpty = when (state.selectedTab) {
         SearchTab.Posts -> state.posts.isEmpty()
         SearchTab.Books -> state.listings.isEmpty()
         SearchTab.People -> state.people.isEmpty()
+        SearchTab.Clubs -> state.clubs.isEmpty()
     }
     if (isEmpty) {
         NbEmptyState(
@@ -480,8 +548,48 @@ private fun SearchResults(
                 SearchTab.People -> state.people.forEach { person ->
                     item(key = "person_${person.uid}") { PersonRow(person, onOpenProfile) }
                 }
+                SearchTab.Clubs -> state.clubs.forEach { club ->
+                    item(key = "club_${club.id}") { ClubRow(club, onOpenClub) }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun DiscoveryClub(club: Club, onOpen: (String) -> Unit) {
+    Column(
+        modifier = Modifier.width(164.dp).pressScale(onTap = { onOpen(club.id) }),
+        verticalArrangement = Arrangement.spacedBy(NbDimens.space8),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth().height(112.dp).clip(RoundedCornerShape(NbDimens.radiusSm)).background(NbTheme.colors.brandTeal.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (club.avatar.isNullOrBlank()) Icon(NbIcons.Messages, contentDescription = club.name, tint = NbTheme.colors.brandTeal, modifier = Modifier.size(36.dp))
+            else AsyncImage(model = club.avatar, contentDescription = club.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        Text(club.name.ifBlank { "Campus club" }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${club.memberCount} members", style = MaterialTheme.typography.labelSmall, color = NbTheme.colors.inkMuted)
+    }
+}
+
+@Composable
+private fun ClubRow(club: Club, onOpen: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onOpen(club.id) }.padding(vertical = NbDimens.space8),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NbDimens.space12),
+    ) {
+        Box(modifier = Modifier.size(56.dp).clip(RoundedCornerShape(NbDimens.radiusSm)).background(NbTheme.colors.brandTeal.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+            if (club.avatar.isNullOrBlank()) Icon(NbIcons.Messages, contentDescription = club.name, tint = NbTheme.colors.brandTeal)
+            else AsyncImage(model = club.avatar, contentDescription = club.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space2)) {
+            Text(club.name.ifBlank { "Campus club" }, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(club.school.takeIf(String::isNotBlank), "${club.memberCount} members").joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = NbTheme.colors.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(NbIcons.ArrowRight, contentDescription = null, tint = NbTheme.colors.inkFaint)
     }
 }
 
@@ -630,10 +738,12 @@ private fun SearchTab.label() = when (this) {
     SearchTab.Posts -> "Posts"
     SearchTab.Books -> "Books"
     SearchTab.People -> "People"
+    SearchTab.Clubs -> "Clubs"
 }
 
 private fun SearchTab.labelWithCount(state: SearchUiState) = when (this) {
     SearchTab.Posts -> "Posts ${state.posts.size}"
     SearchTab.Books -> "Books ${state.listings.size}"
     SearchTab.People -> "People ${state.people.size}"
+    SearchTab.Clubs -> "Clubs ${state.clubs.size}"
 }

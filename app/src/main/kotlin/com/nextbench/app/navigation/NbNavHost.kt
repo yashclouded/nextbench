@@ -284,6 +284,7 @@ fun NbNavHost(
                 onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
                 onOpenPost = { postId -> navController.navigate(NbRoute.post(postId)) { launchSingleTop = true } },
                 onOpenListing = { productId -> navController.navigate(NbRoute.product(productId)) { launchSingleTop = true } },
+                onOpenClub = { clubId -> navController.navigate(NbRoute.club(clubId)) { launchSingleTop = true } },
             )
         }
 

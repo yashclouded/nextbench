@@ -1,5 +1,6 @@
 package com.nextbench.data.firebase
 
+import com.nextbench.data.model.Club
 import com.nextbench.data.model.Post
 import com.nextbench.data.model.Product
 import com.nextbench.data.model.UserData
@@ -11,6 +12,7 @@ data class SearchResults(
     val people: List<UserData>,
     val posts: List<Post>,
     val listings: List<Product>,
+    val clubs: List<Club>,
 )
 
 @Singleton
@@ -44,6 +46,10 @@ internal fun Map<String, Any?>.toSearchResults(): SearchResults = SearchResults(
     people = mapList("users").mapNotNull(Map<String, Any?>::toPublicUser),
     posts = mapList("posts").mapNotNull(Map<String, Any?>::toPost),
     listings = mapList("products").mapNotNull(Map<String, Any?>::toProduct),
+    clubs = mapList("clubs").mapNotNull { data ->
+        val id = data["id"]?.toString().orEmpty()
+        id.takeIf(String::isNotBlank)?.let { data.toClub(it) }
+    },
 )
 
 private class SearchConfigurationException : IllegalStateException(
