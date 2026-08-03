@@ -17,6 +17,19 @@ The Android app must:
 
 The target experience is the craft and responsiveness of mature social and publishing apps, while retaining NextBench's own visual identity and campus focus.
 
+### Delivery Goal
+
+The end state is a Play-ready app that a large real-world audience can use safely and repeatedly. Work toward that goal through small verified vertical slices, not speculative rewrites. Every change should improve at least one of these qualities without degrading the others:
+
+- Backend correctness and website interoperability
+- User trust, privacy, and permission safety
+- Responsiveness, motion quality, and scrolling stability
+- Accessibility and resilience across devices and text sizes
+- Maintainability, testability, and clear ownership
+- Release readiness and operational observability
+
+"Production quality" is an evidence standard. A feature is not proven because it looks complete in a preview or passes a JVM test. Device-dependent claims such as push delivery, share-target behavior, accessibility, startup time, and frame smoothness require emulator or physical-device evidence.
+
 ### Explicit Product Constraint
 
 Do not build an admin panel in the Android app. Administration and moderation dashboards are managed by the website. Android may expose ordinary user-facing report, block, safety, and moderation-result states, but not an admin console.
@@ -108,6 +121,20 @@ nextbench/
 
 Features currently live as packages inside the `app` module, not separate Gradle feature modules. Keep new work in the existing layout unless a split clearly reduces real build or ownership problems.
 
+### Important files at a glance
+
+- `app/src/main/AndroidManifest.xml`: exported Android entry points, permissions, deep links, share target, FCM service, and `FileProvider`.
+- `app/build.gradle.kts`: application configuration, local property resolution, release gates, and app dependencies.
+- `app/src/main/kotlin/com/nextbench/app/MainActivity.kt`: activity lifecycle, edge-to-edge setup, theme preference, and incoming-intent handoff.
+- `app/src/main/kotlin/com/nextbench/app/NbAppShell.kt`: persistent chrome, presence, push-permission coordination, share/deep-link dispatch, and top-level navigation state.
+- `app/src/main/kotlin/com/nextbench/app/navigation/NbRoute.kt`: stable route strings, route builders, and bottom tabs.
+- `app/src/main/kotlin/com/nextbench/app/navigation/NbNavHost.kt`: destination graph, deep-link declarations, and access gates.
+- `data/firebase/src/main/kotlin/com/nextbench/data/firebase/FirestoreRefs.kt`: canonical Android-side Firestore path accessors.
+- `data/firebase/src/main/kotlin/com/nextbench/data/firebase/NbFunctions.kt`: callable Cloud Function request/response boundary.
+- `data/firebase/src/main/kotlin/com/nextbench/data/firebase/FirebaseModule.kt`: Firebase SDK providers and persistent Firestore cache.
+- `functions-android/src/index.ts`: Android-owned callable functions and push triggers.
+- `gradle/libs.versions.toml`: dependency versions. Update libraries here rather than embedding versions in module files.
+
 ## 5. Module Responsibilities
 
 ### `app`
@@ -184,6 +211,18 @@ Access policy lives in `auth/AuthGate.kt`:
 
 Do not work around a route guard inside a screen.
 
+The bottom destinations are Feed, Search, Create, Chats, and Profile. `Marketplace` remains a valid internal route for browsing, wishlist, listing creation, and links, but it is intentionally not a bottom-navigation tab. Marketplace recommendations also appear in feed and search.
+
+When adding or changing a linkable destination, update the complete route surface where applicable:
+
+1. Add or update the route and encoded builder in `NbRoute.kt`.
+2. Register the destination and URI patterns in `NbNavHost.kt`.
+3. Add the Android manifest host only when a new custom-scheme host is required.
+4. Update notification-link routing if pushes or in-app notifications can open it.
+5. Add route parsing/building tests.
+
+Never concatenate untrusted route segments manually. Use the route builders so IDs and usernames are encoded consistently.
+
 ### Feature data flow
 
 The standard flow is:
@@ -199,6 +238,16 @@ Compose event
 
 For realtime data, repositories expose `Flow`. ViewModels collect inside `viewModelScope`, map failures to stable UI state, and cancel or replace jobs when the active user or route identity changes.
 
+### State and lifecycle rules
+
+- A screen renders state and emits events; it does not own backend truth.
+- A ViewModel owns feature UI state, active listener jobs, optimistic state, and retry coordination.
+- A repository owns Firebase payloads, queries, transactions, snapshots, and compatibility mapping.
+- Media-store/controller helpers own Android `Uri`, cache-file, recorder, player, or content-resolver lifecycles.
+- Temporary content required for retry must outlive the picker intent and remain available until success or explicit discard.
+- Long-lived listeners must be keyed by the current user and entity identity so stale callbacks cannot overwrite a new screen session.
+- Use lifecycle-aware collection in Compose. Do not start Firebase listeners directly from recomposition.
+
 ## 7. Firebase and Website Compatibility
 
 The Android app consumes Firebase project `nextbench-a11ed`. It is another client of the same backend, not a separate product database.
@@ -210,6 +259,14 @@ Before changing a Firestore read, write, or callable:
 3. Inspect existing Android repository contract tests.
 4. Preserve legacy field aliases when Android already supports them.
 5. Add a focused contract test for the exact payload or mapper change.
+
+Use this decision rule for backend changes:
+
+- If Android can use the website's existing document/query/callable contract, reuse it.
+- If direct Firestore access is denied but the website already exposes a trusted callable, wrap that callable in `NbFunctions`.
+- If Android uniquely needs trusted server behavior, add it to `functions-android` only when it does not duplicate or take ownership of the website backend.
+- If the required change belongs to website Functions or Firestore rules, modify the website repository only under an explicitly scoped task. Do not silently create a competing Android schema.
+- Never deploy Functions or rules merely to validate local code. Deployment is a separate, explicit operation.
 
 Useful website references include:
 
@@ -258,6 +315,10 @@ Client-safe local values may be supplied through ignored `.env`, `local.properti
 - `GIPHY_API_KEY`
 - `GOOGLE_WEB_CLIENT_ID` as an intentional override
 - Release signing variables documented in `docs/SETUP.md`
+
+Gradle resolves ordinary local values in this order: `local.properties`, process environment, root `.env`, then the matching `VITE_` name in root `.env`. `GOOGLE_WEB_CLIENT_ID` is normally extracted from the matching Android client in `app/google-services.json`; the local value is an intentional override.
+
+Do not treat Firebase Web SDK values from the website `.env` as a substitute for Android Firebase configuration. Native Firebase requires the actual ignored `app/google-services.json` for package `com.nextbench.app`.
 
 Debug UI compilation works without `google-services.json`, but Firebase-backed behavior deliberately reports that Firebase is not configured. Release packaging fails early when Firebase, Cloudinary, or release signing is missing.
 
@@ -339,7 +400,7 @@ Do not leave a button active during a duplicate submission. Do not silently disc
 - Club chat shares message concepts with direct chat but has different membership and role rules.
 - Do not assume direct-chat Firestore permissions apply to clubs.
 - Only club leads/co-leads may perform role-restricted operations.
-- Leadership transfer and richer role management remain areas for continued parity work.
+- Current Android behavior includes promote/demote, leadership transfer, hierarchy-aware member removal, and a guard that prevents a lead from leaving before transfer. Preserve role hierarchy and verify changes against current rules.
 
 ### Profiles
 
@@ -352,6 +413,14 @@ Do not leave a button active during a duplicate submission. Do not silently disc
 - `NbMessagingService` receives Android FCM messages and builds deep-link intents.
 - Token synchronization is performed after authentication.
 - Changes to push delivery can require both Android changes and the isolated `functions-android` codebase. Test both when applicable.
+- The isolated codebase currently handles token registration/removal and direct/club message delivery. Cloud deployment state and real-device delivery are external facts; passing local tests does not prove either.
+
+### Native sharing
+
+- Android accepts `ACTION_SEND` and `ACTION_SEND_MULTIPLE` for text, links, images, videos, and documents.
+- `MainActivity` receives the intent; `NbAppShell` defers it until onboarding/auth routing is stable; the share feature prepares retry-safe content and sends to a direct room or club.
+- Preserve MIME type, display name, and URI permission handling. Do not assume the originating app's URI remains readable after process recreation.
+- Share behavior must be tested from at least one external app on a device before claiming it is complete.
 
 ## 11. Coding Conventions
 
@@ -377,6 +446,15 @@ Run the smallest relevant test while iterating, for example:
 ./gradlew :data:firebase:testDebugUnitTest --tests com.nextbench.data.firebase.ChatRepositoryContractTest
 ./gradlew :app:compileDebugKotlin
 ```
+
+Place tests according to the behavior under test:
+
+- `data:model/src/test`: model defaults, normalization, and compatibility behavior.
+- `data:firebase/src/test`: Firestore paths, query shapes, write payloads, callable payloads, and mapper contracts.
+- `app/src/test`: ViewModel/state transitions, route/gate behavior, intent normalization, and extracted pure UI logic.
+- `functions-android/test`: callable/trigger helpers, recipient filtering, payload construction, and token cleanup behavior.
+
+Prefer a narrow regression test that names the broken contract over a broad test that merely executes code.
 
 ### Required full Android verification
 
@@ -424,6 +502,18 @@ Automated tests do not replace device checks for:
 - TalkBack and large text
 
 If a device or emulator was not available, state that clearly rather than claiming the UI was fully verified.
+
+### Secret and diff checks
+
+Before staging configuration-sensitive work, run:
+
+```bash
+git check-ignore -v .env app/google-services.json local.properties
+git diff --check
+git diff | rg "AIza|fe_oa_|FIREBASE_API_KEY|CLOUDINARY|PRIVATE_KEY|BEGIN RSA|password" || true
+```
+
+Investigate every match. Some strings may be harmless names in documentation or build logic, but real values must never enter a commit.
 
 ## 13. Git and Delivery Rules
 
@@ -478,20 +568,33 @@ A feature is not done merely because the happy path compiles. A completed slice 
 
 ## 15. Current Product Direction
 
-The project already contains substantial working vertical slices for authentication, verification, feed, stories, posts, marketplace, direct chat, clubs, notifications, search, invites, own/public profiles, and profile settings.
+The project already contains substantial working vertical slices for onboarding, authentication, verification, mixed feed, stories, post composition/detail, marketplace, direct chat, clubs, notifications, unified search, invites, native sharing, own/public profiles, and profile settings.
+
+Recently completed capabilities include richer club discovery, bounded recent search history, native share-target routing, direct and club Android message pushes, secure link previews, and club leadership/role management. Reinspect the code and recent history before treating any of these as missing.
 
 High-value remaining work includes:
 
-- Complete and device-test native share-target behavior.
-- Add recent searches and richer club results to unified discovery.
-- Finish club leadership transfer and role management.
 - Improve accessibility through TalkBack, large-text, and contrast testing.
 - Add Baseline Profiles and run device performance profiling.
-- Validate push delivery across foreground/background/killed states.
+- Device-test native sharing from representative external apps and content types.
+- Validate push delivery and deep links across foreground, background, and killed states.
+- Harden offline/reconnect behavior, especially authored drafts and media retry paths.
+- Audit story creation/viewing/privacy parity against the website.
 - Complete release signing and Play-ready release validation.
 - Continue UI refinement only where it improves clarity, speed, or perceived quality.
 
 This list is directional, not permission to skip repository inspection. Always check current code and recent commits before assuming a gap still exists.
+
+### Known evidence gaps
+
+At the time this guide was updated, local unit tests, lint, debug compilation, and debug APK assembly were the primary automated evidence. The following still require authoritative external validation and must not be reported as proven without it:
+
+- FCM delivery on real devices in foreground, background, and killed states
+- Deployed state of `functions-android`
+- Sharesheet behavior across sending apps and persisted URI access
+- TalkBack traversal, large-text layouts, contrast, and switch-access usability
+- Cold start, jank, sustained scroll performance, and Baseline Profile effectiveness
+- Release keystore correctness, signed AAB generation, and Play Console acceptance
 
 ## 16. Common Failure Modes to Avoid
 
