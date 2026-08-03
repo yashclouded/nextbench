@@ -9,10 +9,13 @@ import com.nextbench.data.firebase.ChatRepository
 import com.nextbench.data.firebase.ChatRoomDetail
 import com.nextbench.data.firebase.ForwardTarget
 import com.nextbench.data.model.Message
+import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import com.google.firebase.Timestamp
+import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -110,6 +113,8 @@ class ChatRoomViewModel @Inject constructor(
     private var voiceRecordingJob: Job? = null
     private var typingActive = false
     private var noticeId = 0L
+    private var remoteMessages: List<Message> = emptyList()
+    private val optimisticMessages = linkedMapOf<String, Message>()
 
     init {
         viewModelScope.launch {
@@ -127,6 +132,8 @@ class ChatRoomViewModel @Inject constructor(
         cancelVoiceRecording()
         voicePlayer.stop()
         stopTyping()
+        remoteMessages = emptyList()
+        optimisticMessages.clear()
         viewer = user
         _state.value = ChatRoomUiState(isLoading = user != null)
         val uid = user?.uid ?: return
@@ -143,7 +150,10 @@ class ChatRoomViewModel @Inject constructor(
             repository.observeMessages(roomId, uid)
                 .catch { error -> showLoadError(error) }
                 .collect { messages ->
-                    _state.update { it.copy(messages = messages, isLoading = false, error = null) }
+                    remoteMessages = messages
+                    val deliveredIds = messages.mapNotNull(Message::clientMessageId).toSet()
+                    optimisticMessages.keys.removeAll(deliveredIds)
+                    publishMessages(isLoading = false, error = null)
                 }
         }
         blockJob = viewModelScope.launch {
@@ -411,20 +421,57 @@ class ChatRoomViewModel @Inject constructor(
         if (snapshot.isSending || snapshot.isSendingAttachment || snapshot.isSendingVoice || snapshot.isRecordingVoice || snapshot.blocked || room.status == "pending") return false
         val text = snapshot.composerText.trim()
         if (text.isEmpty()) return false
-        _state.update { it.copy(isSending = true) }
+        val clientMessageId = "android_${UUID.randomUUID()}"
+        val optimistic = optimisticTextMessage(clientMessageId, user, text, snapshot.replyTo, MessageStatus.Pending)
+        optimisticMessages[clientMessageId] = optimistic
+        _state.update { it.copy(composerText = "", replyTo = null) }
+        publishMessages()
         stopTyping()
+        deliverOptimisticText(clientMessageId, user, text, snapshot.replyTo)
+        return true
+    }
+
+    fun retryText(message: Message): Boolean {
+        val clientMessageId = message.clientMessageId ?: return false
+        val outgoing = optimisticMessages[clientMessageId] ?: return false
+        if (MessageStatus.from(outgoing.status) != MessageStatus.Failed) return false
+        val user = viewer ?: return false
+        optimisticMessages[clientMessageId] = outgoing.copy(status = MessageStatus.Pending.raw)
+        publishMessages()
+        deliverOptimisticText(clientMessageId, user, outgoing.text.orEmpty(), optimisticReplyMessage(outgoing))
+        return true
+    }
+
+    fun removeFailedText(message: Message): Boolean {
+        if (MessageStatus.from(message.status) != MessageStatus.Failed) return false
+        val clientMessageId = message.clientMessageId ?: return false
+        if (optimisticMessages.remove(clientMessageId) == null) return false
+        publishMessages()
+        return true
+    }
+
+    private fun deliverOptimisticText(clientMessageId: String, user: UserData, text: String, replyTo: Message?) {
         viewModelScope.launch {
-            repository.sendText(roomId, user, text, snapshot.replyTo).fold(
-                onSuccess = {
-                    _state.update { it.copy(composerText = "", replyTo = null, isSending = false) }
+            repository.sendText(roomId, user, text, replyTo, clientMessageId).fold(
+                onSuccess = { delivered ->
+                    if (remoteMessages.none { it.clientMessageId == clientMessageId }) {
+                        optimisticMessages[clientMessageId] = delivered.copy(status = MessageStatus.Sent.raw)
+                        publishMessages()
+                    }
                 },
                 onFailure = { error ->
-                    _state.update { it.copy(isSending = false) }
-                    showNotice(error.chatMessage(), ChatNoticeKind.Error)
+                    if (remoteMessages.none { it.clientMessageId == clientMessageId }) {
+                        optimisticMessages[clientMessageId] = optimisticMessages.getValue(clientMessageId).copy(status = MessageStatus.Failed.raw)
+                        publishMessages()
+                        showNotice(error.chatMessage(), ChatNoticeKind.Error)
+                    }
                 },
             )
         }
-        return true
+    }
+
+    private fun publishMessages(isLoading: Boolean = state.value.isLoading, error: String? = state.value.error) {
+        _state.update { it.copy(messages = mergeOptimisticMessages(remoteMessages, optimisticMessages.values), isLoading = isLoading, error = error) }
     }
 
     fun sendAttachment(): Boolean {
@@ -685,6 +732,53 @@ class ChatRoomViewModel @Inject constructor(
 }
 
 internal fun ForwardTarget.forwardKey(): String = "${type.name}:$id"
+
+internal fun optimisticTextMessage(
+    clientMessageId: String,
+    sender: UserData,
+    text: String,
+    replyTo: Message?,
+    status: MessageStatus,
+): Message = Message(
+    id = clientMessageId,
+    senderId = sender.uid,
+    senderName = sender.name.ifBlank { "Student" },
+    senderAvatar = sender.profilePicture,
+    text = text,
+    type = MessageType.Text.raw,
+    createdAt = Timestamp.now(),
+    replyToMessageId = replyTo?.id,
+    replyToText = replyTo?.optimisticReplyPreview(),
+    replyToSenderName = replyTo?.senderName,
+    replyToType = replyTo?.let { MessageType.from(it.type).raw },
+    clientMessageId = clientMessageId,
+    status = status.raw,
+)
+
+internal fun mergeOptimisticMessages(remote: List<Message>, optimistic: Collection<Message>): List<Message> {
+    val deliveredClientIds = remote.mapNotNull(Message::clientMessageId).toSet()
+    return (remote + optimistic.filterNot { it.clientMessageId in deliveredClientIds })
+        .distinctBy { it.id }
+        .sortedWith(compareBy<Message> { it.createdAt?.toDate()?.time ?: Long.MAX_VALUE }.thenBy(Message::id))
+}
+
+private fun Message.optimisticReplyPreview(): String = text?.takeIf(String::isNotBlank)
+    ?: when (MessageType.from(type)) {
+        MessageType.Image -> "Photo"
+        MessageType.Video -> "Video"
+        MessageType.File -> file?.name?.takeIf(String::isNotBlank) ?: "File"
+        MessageType.Voice -> "Voice message"
+        MessageType.Text -> "Message"
+    }
+
+private fun optimisticReplyMessage(message: Message): Message? = message.replyToMessageId?.let { replyId ->
+    Message(
+        id = replyId,
+        senderName = message.replyToSenderName,
+        text = message.replyToText,
+        type = message.replyToType ?: MessageType.Text.raw,
+    )
+}
 
 internal fun Throwable.voiceRecorderMessage(): String = when (this) {
     is SecurityException -> "Microphone permission is required to send voice messages."

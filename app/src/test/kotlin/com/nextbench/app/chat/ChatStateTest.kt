@@ -8,6 +8,7 @@ import com.nextbench.data.firebase.ForwardTarget
 import com.nextbench.data.firebase.ForwardTargetType
 import com.nextbench.data.model.ChatRoom
 import com.nextbench.data.model.Message
+import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.UserData
 import java.time.ZoneId
 import java.util.Date
@@ -190,6 +191,29 @@ class ChatStateTest {
         assertFalse(shouldShowJumpToLatest(totalItems = 0, lastVisibleIndex = null))
         assertFalse(shouldShowJumpToLatest(totalItems = 12, lastVisibleIndex = 10))
         assertTrue(shouldShowJumpToLatest(totalItems = 12, lastVisibleIndex = 9))
+    }
+
+    @Test
+    fun `optimistic messages reconcile by client id and preserve chronological order`() {
+        val sender = UserData(uid = "viewer", name = "Maya")
+        val pending = optimisticTextMessage("android-pending", sender, "Pending", null, MessageStatus.Pending)
+        val delivered = pending.copy(id = "server-pending", status = MessageStatus.Sent.raw, createdAt = Timestamp(Date(1_000L)))
+        val failed = optimisticTextMessage("android-failed", sender, "Retry me", null, MessageStatus.Failed).copy(createdAt = Timestamp(Date(2_000L)))
+
+        val merged = mergeOptimisticMessages(remote = listOf(delivered), optimistic = listOf(pending, failed))
+
+        assertEquals(listOf("server-pending", "android-failed"), merged.map(Message::id))
+        assertEquals(MessageStatus.Failed.raw, merged.last().status)
+    }
+
+    @Test
+    fun `optimistic replies preserve structured preview metadata`() {
+        val reply = Message(id = "photo", senderName = "Noah", type = "image", image = "https://cdn/photo.jpg")
+        val optimistic = optimisticTextMessage("android-message", UserData(uid = "viewer", name = "Maya"), "Looks good", reply, MessageStatus.Pending)
+
+        assertEquals("photo", optimistic.replyToMessageId)
+        assertEquals("Photo", optimistic.replyToText)
+        assertEquals("image", optimistic.replyToType)
     }
 
     @Test

@@ -105,6 +105,7 @@ import com.nextbench.core.designsystem.NbTextField
 import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.NbVerifiedBadge
 import com.nextbench.data.model.Message
+import com.nextbench.data.model.MessageStatus
 import com.nextbench.data.model.MessageType
 import com.nextbench.data.model.UserData
 import com.nextbench.data.firebase.ForwardTarget
@@ -263,6 +264,8 @@ fun ChatRoomScreen(
                                 selected = message.id in state.selectedMessageIds,
                                 onToggleSelection = { viewModel.selectMessage(message) },
                                 onReply = { viewModel.setReplyTo(message) },
+                                onRetry = { viewModel.retryText(message) },
+                                onRemoveFailed = { viewModel.removeFailedText(message) },
                                 onOpenAttachment = { url -> openAttachment(context, url) },
                                 playback = state.voicePlayback,
                                 onToggleVoice = viewModel::toggleVoicePlayback,
@@ -583,6 +586,8 @@ private fun MessageBubble(
     selected: Boolean,
     onToggleSelection: () -> Unit,
     onReply: () -> Unit,
+    onRetry: () -> Unit,
+    onRemoveFailed: () -> Unit,
     onOpenAttachment: (String) -> Unit,
     playback: ChatVoicePlaybackState,
     onToggleVoice: (Message) -> Unit,
@@ -596,11 +601,13 @@ private fun MessageBubble(
     var swipeOffset by remember(message.id) { mutableFloatStateOf(0f) }
     val swipeThresholdPx = with(density) { 64.dp.toPx() }
     val maxSwipePx = with(density) { 84.dp.toPx() }
+    val deliveryStatus = MessageStatus.from(message.status)
+    val replyDisabled = message.isDeletedForEveryone || deliveryStatus != MessageStatus.Sent
     val shape = if (isViewer) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp) else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
     val bubbleColor = if (isViewer) NbTheme.colors.brandTeal else NbTheme.colors.surfaceCard
     val textColor = if (isViewer) Color.White else NbTheme.colors.ink
     Box(modifier = Modifier.fillMaxWidth()) {
-        if (!selectionMode && !message.isDeletedForEveryone) {
+        if (!selectionMode && !replyDisabled) {
             Icon(
                 NbIcons.Reply,
                 contentDescription = null,
@@ -612,11 +619,11 @@ private fun MessageBubble(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(swipeOffset.roundToInt(), 0) }
-                .pointerInput(message.id, selectionMode, message.isDeletedForEveryone) {
-                    if (selectionMode || message.isDeletedForEveryone) return@pointerInput
+                .pointerInput(message.id, selectionMode, replyDisabled) {
+                    if (selectionMode || replyDisabled) return@pointerInput
                     detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (shouldTriggerSwipeReply(swipeOffset, swipeThresholdPx, selectionMode, message.isDeletedForEveryone)) onReply()
+                            if (shouldTriggerSwipeReply(swipeOffset, swipeThresholdPx, selectionMode, replyDisabled)) onReply()
                             val start = swipeOffset
                             gestureScope.launch { animate(start, 0f, animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f)) { value, _ -> swipeOffset = value } }
                         },
@@ -651,7 +658,7 @@ private fun MessageBubble(
                         .clip(shape)
                         .background(bubbleColor)
                         .pointerInput(message.id) {
-                            detectTapGestures(onLongPress = { onLongPress(message) })
+                            detectTapGestures(onLongPress = { if (deliveryStatus == MessageStatus.Sent) onLongPress(message) })
                         }
                         .animateContentSize()
                         .padding(horizontal = NbDimens.space14, vertical = NbDimens.space12),
@@ -729,7 +736,15 @@ private fun MessageBubble(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
                     Text(message.createdAt?.toDate()?.time?.let(::formatRelativeTime) ?: "sending", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))
-                    if (isViewer && message.readBy.isNotEmpty()) Text("Seen", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))
+                    when (deliveryStatus) {
+                        MessageStatus.Pending -> Text("Sending...", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))
+                        MessageStatus.Failed -> {
+                            Text("Failed", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = NbTheme.colors.brandPink)
+                            Text("Retry", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = if (isViewer) Color.White else NbTheme.colors.brandTeal, modifier = Modifier.clickable(onClick = onRetry))
+                            Icon(NbIcons.Close, contentDescription = "Remove failed message", tint = textColor.copy(alpha = 0.72f), modifier = Modifier.size(15.dp).clickable(onClick = onRemoveFailed))
+                        }
+                        MessageStatus.Sent -> if (isViewer && message.readBy.isNotEmpty()) Text("Seen", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.68f))
+                    }
                 }
                 }
             }

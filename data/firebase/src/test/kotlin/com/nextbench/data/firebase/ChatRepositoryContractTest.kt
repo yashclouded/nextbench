@@ -104,6 +104,21 @@ class ChatRepositoryContractTest {
     }
 
     @Test
+    fun `text payload preserves stable client id for idempotent retries`() {
+        val payload = textMessagePayload(
+            sender = UserData(uid = "student-1", name = "Maya"),
+            messageId = "android-stable-id",
+            text = "Sent once",
+            clientMessageId = "android-stable-id",
+        )
+
+        assertEquals("android-stable-id", payload["clientMessageId"])
+        assertTrue(isValidMessageDocumentId("android-stable-id"))
+        assertFalse(isValidMessageDocumentId("android/invalid"))
+        assertFalse(isValidMessageDocumentId("a".repeat(129)))
+    }
+
+    @Test
     fun `voice payload matches the shared web contract`() {
         val payload = voiceMessagePayload(
             sender = UserData(uid = "student-1", name = "Maya"),

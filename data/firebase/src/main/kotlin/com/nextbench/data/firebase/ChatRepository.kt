@@ -286,6 +286,7 @@ class ChatRepository @Inject constructor(
         sender: UserData,
         text: String,
         replyTo: Message? = null,
+        clientMessageId: String? = null,
     ): Result<Message> = runCatching {
         ensureConfigured()
         requireAuthenticated(sender.uid)
@@ -304,12 +305,15 @@ class ChatRepository @Inject constructor(
         val otherIds = room.participants.filter { it != sender.uid && it.isNotBlank() }
         require(!hasBlockRelationship(sender.uid, otherIds)) { "Cannot message this user." }
 
-        val messageRef = refs.messages(roomId).document()
+        val stableClientId = clientMessageId?.trim()?.takeIf(String::isNotBlank)
+        require(stableClientId == null || isValidMessageDocumentId(stableClientId)) { "Message retry identifier is invalid." }
+        val messageRef = stableClientId?.let { refs.messages(roomId).document(it) } ?: refs.messages(roomId).document()
         val payload = textMessagePayload(
             sender = sender,
             messageId = messageRef.id,
             text = normalized,
             replyTo = replyTo,
+            clientMessageId = stableClientId ?: "android_${messageRef.id}",
         )
         val roomUpdate = roomMetadataPayload(
             senderId = sender.uid,
@@ -329,7 +333,7 @@ class ChatRepository @Inject constructor(
             text = normalized,
             type = MessageType.Text.raw,
             createdAt = Timestamp.now(),
-            clientMessageId = "android_${messageRef.id}",
+            clientMessageId = stableClientId ?: "android_${messageRef.id}",
             status = MessageStatus.Sent.raw,
             replyToMessageId = replyTo?.id,
             replyToText = replyTo?.replyPreviewText(),
@@ -924,6 +928,7 @@ internal fun textMessagePayload(
     messageId: String,
     text: String,
     replyTo: Message? = null,
+    clientMessageId: String = "android_$messageId",
 ): Map<String, Any?> = mapOf(
     "senderId" to sender.uid,
     "senderName" to sender.name.ifBlank { "Student" },
@@ -931,7 +936,7 @@ internal fun textMessagePayload(
     "text" to text,
     "type" to MessageType.Text.raw,
     "createdAt" to FieldValue.serverTimestamp(),
-    "clientMessageId" to "android_$messageId",
+    "clientMessageId" to clientMessageId,
     "status" to MessageStatus.Sent.raw,
 ) + replyPayload(replyTo)
 
@@ -1090,6 +1095,9 @@ private fun Message.replyPreviewType(): String = MessageType.from(type).raw
 
 internal fun explicitAttachmentMessageType(type: String): String? =
     MessageType.from(type).raw.takeUnless { it == MessageType.Image.raw }
+
+internal fun isValidMessageDocumentId(value: String): Boolean =
+    value.length in 1..128 && value.all { it.isLetterOrDigit() || it == '_' || it == '-' }
 
 private fun Message.replyPreviewText(): String = text?.takeIf(String::isNotBlank)
     ?: when (MessageType.from(type)) {
