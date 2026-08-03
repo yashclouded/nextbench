@@ -74,6 +74,21 @@ class ClubsStateTest {
     }
 
     @Test
+    fun `club text and attachment sends are blocked during voice recording or upload`() {
+        val recording = ClubChatUiState(
+            club = Club(leadId = "lead", memberIds = listOf("lead")),
+            composerText = "Caption",
+            isRecordingVoice = true,
+        )
+        val uploading = recording.copy(isRecordingVoice = false, isSendingVoice = true)
+
+        assertFalse(recording.canSend("lead"))
+        assertFalse(uploading.canSend("lead"))
+        assertFalse(canSendClubAttachment(canPost = true, hasAttachment = true, isSending = false, isSendingAttachment = false, isSendingVoice = true))
+        assertFalse(canSendClubAttachment(canPost = true, hasAttachment = true, isSending = false, isSendingAttachment = false, isRecordingVoice = true))
+    }
+
+    @Test
     fun `club settings distinguish lead and member permissions`() {
         val state = ClubSettingsUiState(
             club = Club(leadId = "lead", memberIds = listOf("lead", "member")),

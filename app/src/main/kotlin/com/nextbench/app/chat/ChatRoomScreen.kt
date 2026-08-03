@@ -684,7 +684,7 @@ private fun SelectionIndicator(selected: Boolean) {
 }
 
 @Composable
-private fun VoiceMessageBubble(
+internal fun VoiceMessageBubble(
     message: Message,
     isViewer: Boolean,
     playback: ChatVoicePlaybackState,
@@ -875,7 +875,7 @@ private fun Composer(
 }
 
 @Composable
-private fun VoiceRecordingControls(
+internal fun VoiceRecordingControls(
     durationSeconds: Long,
     levels: List<Float>,
     onCancel: () -> Boolean,

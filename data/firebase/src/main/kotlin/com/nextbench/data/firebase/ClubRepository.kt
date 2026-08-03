@@ -3,6 +3,7 @@ package com.nextbench.data.firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.Timestamp
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.ClubSettings
 import com.nextbench.data.model.FileAttachment
@@ -239,6 +240,42 @@ class ClubRepository @Inject constructor(
     suspend fun sendFile(clubId: String, sender: UserData, file: File, displayName: String, mimeType: String, caption: String?, replyTo: Message?): Result<Message> =
         sendAttachment(clubId, sender, file, displayName = displayName, caption = caption, replyTo = replyTo, kind = ClubAttachmentKind.File(mimeType))
 
+    suspend fun sendVoice(clubId: String, sender: UserData, file: File, durationSeconds: Long, mimeType: String, replyTo: Message?): Result<Message> = runCatching {
+        ensureConfigured()
+        requireAuthenticated(sender.uid)
+        voiceMessageValidationError(durationSeconds, file.length(), mimeType)?.let { throw IllegalArgumentException(it) }
+        val club = refs.club(clubId).get().await().toClub() ?: error("This club is no longer available.")
+        require(sender.uid in club.memberIds) { "Join this club before posting." }
+        val lead = sender.uid == club.leadId || sender.uid in club.coLeadIds
+        require(!club.settings.onlyLeadsCanPost || lead) { "Only club leads can post right now." }
+        val uploaded = uploader.upload(file, "nextbench/club_voice/$clubId", CloudinaryResourceType.Video)
+        val messageRef = refs.clubMessages(clubId).document()
+        val payload = voiceMessagePayload(sender, messageRef.id, uploaded.url, durationSeconds, file.length(), mimeType, replyTo)
+        val recipients = club.memberIds.filter { it != sender.uid && it.isNotBlank() }
+        val batch = refs.club(clubId).firestore.batch()
+        batch.set(messageRef, payload)
+        batch.update(refs.club(clubId), clubMessageMetadataPayload(sender, "Voice message", recipients))
+        batch.commit().await()
+        Message(
+            id = messageRef.id,
+            senderId = sender.uid,
+            senderName = sender.name.ifBlank { "Student" },
+            senderAvatar = sender.profilePicture,
+            type = MessageType.Voice.raw,
+            audioUrl = uploaded.url,
+            duration = durationSeconds,
+            fileSize = file.length(),
+            mimeType = mimeType,
+            createdAt = Timestamp.now(),
+            clientMessageId = "android_${messageRef.id}",
+            status = MessageStatus.Sent.raw,
+            replyToMessageId = replyTo?.id,
+            replyToText = replyTo?.clubReplyPreview(),
+            replyToSenderName = replyTo?.senderName,
+            replyToType = replyTo?.type,
+        )
+    }
+
     suspend fun toggleReaction(clubId: String, messageId: String, uid: String, emoji: String): Result<Boolean> = runCatching {
         ensureConfigured()
         requireAuthenticated(uid)
@@ -465,7 +502,6 @@ internal fun clubMessageMetadataPayload(
     put("lastSenderId", sender.uid)
     put("lastSenderName", sender.name.ifBlank { "Student" })
     put("updatedAt", FieldValue.serverTimestamp())
-    put("deletedBy", FieldValue.arrayRemove(sender.uid))
     if (recipientIds.isNotEmpty()) {
         put("unreadBy", FieldValue.arrayUnion(*recipientIds.toTypedArray()))
     }

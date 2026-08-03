@@ -5,6 +5,7 @@ import com.nextbench.data.model.FileAttachment
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.MessageType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -43,6 +44,7 @@ class ClubRepositoryContractTest {
         assertEquals("Maya", payload["lastSenderName"])
         assertEquals("See you at the studio", payload["lastMessage"])
         assertTrue(payload.containsKey("unreadBy"))
+        assertFalse(payload.containsKey("deletedBy"))
     }
 
     @Test
@@ -134,6 +136,27 @@ class ClubRepositoryContractTest {
         assertEquals("application/pdf", file["mime"])
         assertEquals(12, file["pages"])
         assertEquals("brief.pdf", payload["replyToText"])
+    }
+
+    @Test
+    fun `club voice payload preserves audio metadata and structured reply`() {
+        val payload = voiceMessagePayload(
+            sender = UserData(uid = "student-1", name = "Maya"),
+            messageId = "voice-1",
+            audioUrl = "https://cdn/voice.m4a",
+            durationSeconds = 17L,
+            fileSize = 128_000L,
+            mimeType = "audio/mp4",
+            replyTo = Message(id = "older", senderName = "Noah", type = MessageType.Voice.raw, audioUrl = "https://cdn/older.m4a"),
+        )
+
+        assertEquals(MessageType.Voice.raw, payload["type"])
+        assertEquals("https://cdn/voice.m4a", payload["audioUrl"])
+        assertEquals(17L, payload["duration"])
+        assertEquals(128_000L, payload["fileSize"])
+        assertEquals("audio/mp4", payload["mimeType"])
+        assertEquals("older", payload["replyToMessageId"])
+        assertEquals("Voice message", payload["replyToText"])
     }
 
     @Test

@@ -7,7 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.ClubRepository
 import com.nextbench.app.chat.ChatAttachmentKind
 import com.nextbench.app.chat.ChatMediaStore
+import com.nextbench.app.chat.ChatVoicePlaybackState
+import com.nextbench.app.chat.ChatVoicePlayer
+import com.nextbench.app.chat.ChatVoiceRecorder
 import com.nextbench.app.chat.PreparedChatAttachment
+import com.nextbench.app.chat.voiceRecorderMessage
 import com.nextbench.data.model.Club
 import com.nextbench.data.model.Message
 import com.nextbench.data.model.UserData
@@ -37,6 +41,11 @@ data class ClubChatUiState(
     val attachment: PreparedChatAttachment? = null,
     val isPreparingAttachment: Boolean = false,
     val isSendingAttachment: Boolean = false,
+    val isRecordingVoice: Boolean = false,
+    val voiceRecordingDurationSeconds: Long = 0L,
+    val voiceRecordingLevels: List<Float> = emptyList(),
+    val isSendingVoice: Boolean = false,
+    val voicePlayback: ChatVoicePlaybackState = ChatVoicePlaybackState(),
     val isLoading: Boolean = true,
     val isSending: Boolean = false,
     val isLeaving: Boolean = false,
@@ -51,12 +60,14 @@ data class ClubChatUiState(
         return member && (!current.settings.onlyLeadsCanPost || lead)
     }
 
-    fun canSend(viewerId: String?): Boolean = canPost(viewerId) && !isSending && !isSendingAttachment && composerText.trim().isNotEmpty()
+    fun canSend(viewerId: String?): Boolean = canPost(viewerId) && !isSending && !isSendingAttachment && !isSendingVoice && !isRecordingVoice && composerText.trim().isNotEmpty()
     fun canSendAttachment(viewerId: String?): Boolean = canSendClubAttachment(
         canPost = canPost(viewerId),
         hasAttachment = attachment != null,
         isSending = isSending,
         isSendingAttachment = isSendingAttachment,
+        isSendingVoice = isSendingVoice,
+        isRecordingVoice = isRecordingVoice,
     )
 }
 
@@ -65,13 +76,17 @@ internal fun canSendClubAttachment(
     hasAttachment: Boolean,
     isSending: Boolean,
     isSendingAttachment: Boolean,
-): Boolean = canPost && hasAttachment && !isSending && !isSendingAttachment
+    isSendingVoice: Boolean = false,
+    isRecordingVoice: Boolean = false,
+): Boolean = canPost && hasAttachment && !isSending && !isSendingAttachment && !isSendingVoice && !isRecordingVoice
 
 @HiltViewModel
 class ClubChatViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: ClubRepository,
     private val mediaStore: ChatMediaStore,
+    private val voiceRecorder: ChatVoiceRecorder,
+    private val voicePlayer: ChatVoicePlayer,
 ) : ViewModel() {
     private val clubId: String = requireNotNull(savedStateHandle["clubId"]) { "Club chat requires a clubId." }
     private val _state = MutableStateFlow(ClubChatUiState())
@@ -84,10 +99,19 @@ class ClubChatViewModel @Inject constructor(
     private var typingActive = false
     private var typingIdleJob: Job? = null
     private var typingRefreshJob: Job? = null
+    private var voiceRecordingJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            voicePlayer.state.collect { playback -> _state.update { it.copy(voicePlayback = playback) } }
+        }
+    }
 
     fun syncViewer(user: UserData?) {
         if (viewer?.uid == user?.uid && (viewer == null) == (user == null)) return
         stopTyping()
+        cancelVoiceRecording()
+        voicePlayer.stop()
         state.value.attachment?.file?.delete()
         viewer = user
         clubJob?.cancel()
@@ -121,7 +145,7 @@ class ClubChatViewModel @Inject constructor(
     }
 
     fun prepareAttachment(uri: android.net.Uri, kind: ChatAttachmentKind? = null) {
-        if (state.value.isPreparingAttachment || state.value.isSendingAttachment) return
+        if (state.value.isPreparingAttachment || state.value.isSendingAttachment || state.value.isSendingVoice || state.value.isRecordingVoice) return
         state.value.attachment?.file?.delete()
         _state.update { it.copy(isPreparingAttachment = true, attachment = null) }
         viewModelScope.launch {
@@ -175,6 +199,96 @@ class ClubChatViewModel @Inject constructor(
             )
         }
         return true
+    }
+
+    fun startVoiceRecording(): Boolean {
+        val uid = viewer?.uid ?: return false
+        val snapshot = state.value
+        if (!snapshot.canPost(uid) || snapshot.attachment != null || snapshot.isSending || snapshot.isSendingAttachment || snapshot.isSendingVoice || snapshot.isRecordingVoice) return false
+        stopTyping()
+        voicePlayer.stop()
+        voiceRecorder.start().fold(
+            onSuccess = {
+                _state.update { it.copy(isRecordingVoice = true, voiceRecordingDurationSeconds = 0L, voiceRecordingLevels = emptyList()) }
+                voiceRecordingJob?.cancel()
+                voiceRecordingJob = viewModelScope.launch {
+                    while (state.value.isRecordingVoice) {
+                        val elapsedMillis = voiceRecorder.elapsedMillis()
+                        val seconds = (elapsedMillis / 1_000L).coerceAtMost(ChatVoiceRecorder.MaxVoiceDurationSeconds)
+                        val level = (voiceRecorder.amplitude().toFloat() / 32_767f).coerceIn(0.04f, 1f)
+                        _state.update { current -> current.copy(voiceRecordingDurationSeconds = seconds, voiceRecordingLevels = (current.voiceRecordingLevels + level).takeLast(VoiceWaveformSamples)) }
+                        if (elapsedMillis >= ChatVoiceRecorder.MaxVoiceDurationSeconds * 1_000L) {
+                            stopVoiceRecording()
+                            break
+                        }
+                        delay(VoiceMeterIntervalMillis)
+                    }
+                }
+            },
+            onFailure = { showNotice(it.voiceRecorderMessage(), ClubChatNoticeKind.Error) },
+        )
+        return state.value.isRecordingVoice
+    }
+
+    fun stopVoiceRecording(): Boolean {
+        if (!state.value.isRecordingVoice) return false
+        voiceRecordingJob?.cancel()
+        voiceRecordingJob = null
+        val recording = voiceRecorder.stop().fold(
+            onSuccess = { it },
+            onFailure = {
+                _state.update { current -> current.copy(isRecordingVoice = false, voiceRecordingDurationSeconds = 0L, voiceRecordingLevels = emptyList()) }
+                showNotice(it.voiceRecorderMessage(), ClubChatNoticeKind.Error)
+                return false
+            },
+        )
+        if (recording.durationSeconds < 1L) {
+            recording.file.delete()
+            _state.update { it.copy(isRecordingVoice = false, voiceRecordingDurationSeconds = 0L, voiceRecordingLevels = emptyList()) }
+            showNotice("Recording is too short. Record for at least 1 second.", ClubChatNoticeKind.Error)
+            return false
+        }
+        val sender = viewer
+        if (sender == null) {
+            recording.file.delete()
+            return false
+        }
+        val reply = state.value.replyTo
+        _state.update { it.copy(isRecordingVoice = false, voiceRecordingDurationSeconds = recording.durationSeconds, voiceRecordingLevels = emptyList(), isSendingVoice = true) }
+        viewModelScope.launch {
+            try {
+                repository.sendVoice(clubId, sender, recording.file, recording.durationSeconds, recording.mimeType, reply).fold(
+                    onSuccess = { _state.update { it.copy(replyTo = null, isSendingVoice = false, voiceRecordingDurationSeconds = 0L) } },
+                    onFailure = { error -> _state.update { it.copy(isSendingVoice = false) }; showNotice(error.clubMessage(), ClubChatNoticeKind.Error) },
+                )
+            } finally {
+                recording.file.delete()
+            }
+        }
+        return true
+    }
+
+    fun cancelVoiceRecording(): Boolean {
+        val wasRecording = state.value.isRecordingVoice
+        voiceRecordingJob?.cancel()
+        voiceRecordingJob = null
+        voiceRecorder.cancel()
+        if (wasRecording) _state.update { it.copy(isRecordingVoice = false, voiceRecordingDurationSeconds = 0L, voiceRecordingLevels = emptyList()) }
+        return wasRecording
+    }
+
+    fun onMicrophonePermissionDenied() = showNotice("Microphone permission is required to send voice messages.", ClubChatNoticeKind.Error)
+
+    fun toggleVoicePlayback(message: Message) = voicePlayer.toggle(message)
+
+    fun seekVoicePlayback(messageId: String, fraction: Float) = voicePlayer.seek(messageId, fraction)
+
+    fun cycleVoicePlaybackSpeed(messageId: String) = voicePlayer.cycleSpeed(messageId)
+
+    fun onScreenDisposed() {
+        stopTyping()
+        cancelVoiceRecording()
+        voicePlayer.stop()
     }
 
     fun setReplyTo(message: Message?) = _state.update { it.copy(replyTo = message, actionMessage = null) }
@@ -266,6 +380,9 @@ class ClubChatViewModel @Inject constructor(
     override fun onCleared() {
         typingIdleJob?.cancel()
         typingRefreshJob?.cancel()
+        voiceRecordingJob?.cancel()
+        voiceRecorder.cancel()
+        voicePlayer.release()
         state.value.attachment?.file?.delete()
         super.onCleared()
     }
@@ -273,5 +390,7 @@ class ClubChatViewModel @Inject constructor(
     companion object {
         private const val TypingIdleMillis = 3_000L
         private const val TypingRefreshMillis = 2_000L
+        private const val VoiceMeterIntervalMillis = 100L
+        private const val VoiceWaveformSamples = 34
     }
 }
