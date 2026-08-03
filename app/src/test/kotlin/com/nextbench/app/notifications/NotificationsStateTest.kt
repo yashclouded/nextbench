@@ -28,6 +28,7 @@ class NotificationsStateTest {
     fun `web links become native routes and push deep links`() {
         assertEquals("product/product-1", notificationRoute("/product/product-1"))
         assertEquals("community", notificationRoute("https://nextbench.in/dashboard"))
+        assertEquals("club/club-1", notificationRoute("/club/club-1"))
         assertEquals("nextbench://chat/room-1", "/chat/room-1".toAppDeepLink())
         assertEquals("nextbench://product/product-1", "https://nextbench.in/product/product-1".toAppDeepLink())
         assertNull(" ".toAppDeepLink())

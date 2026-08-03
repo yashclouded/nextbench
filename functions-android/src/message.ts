@@ -8,6 +8,18 @@ export function stringList(value: unknown): string[] {
     : [];
 }
 
+export function messageRecipients(
+  members: unknown,
+  senderId: string,
+  mutedMembers: unknown,
+  limit: number,
+): string[] {
+  const muted = new Set(stringList(mutedMembers));
+  return [...new Set(stringList(members))]
+    .filter((uid) => uid !== senderId && !muted.has(uid))
+    .slice(0, limit);
+}
+
 export function messagePreview(message: Record<string, unknown>): string {
   const text = stringValue(message.text);
   if (text) return text.slice(0, 160);

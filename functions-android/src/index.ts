@@ -4,7 +4,7 @@ import { getMessaging, MulticastMessage } from "firebase-admin/messaging";
 import { initializeApp } from "firebase-admin/app";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { messagePreview, stringList, stringValue } from "./message";
+import { messagePreview, messageRecipients, stringList, stringValue } from "./message";
 
 initializeApp();
 
@@ -121,10 +121,7 @@ export const notifyAndroidOnNewMessage = onDocumentCreated(
     const roomSnap = await db.collection("chatRooms").doc(roomId).get();
     if (!roomSnap.exists) return;
     const room = roomSnap.data() ?? {};
-    const participants = stringList(room.participants)
-      .filter((uid) => uid !== senderId)
-      .filter((uid) => !stringList(room.mutedBy).includes(uid))
-      .slice(0, MAX_RECIPIENTS);
+    const participants = messageRecipients(room.participants, senderId, room.mutedBy, MAX_RECIPIENTS);
     if (participants.length === 0) return;
 
     const senderSnap = await db.collection("users").doc(senderId).get();
@@ -174,6 +171,97 @@ export const notifyAndroidOnNewMessage = onDocumentCreated(
         link,
         roomId,
         notificationId: `chat_${roomId}`,
+      },
+      android: { priority: "high" },
+    };
+    const result = await messaging.sendEachForMulticast(payload);
+    const invalidTokens = result.responses
+      .map((response, index) => response.success ? null : ({
+        uid: deliveryTargets[index].uid,
+        token: deliveryTargets[index].token,
+        code: response.error?.code ?? "",
+      }))
+      .filter((value): value is { uid: string; token: string; code: string } => value !== null)
+      .filter(({ code }) => code.includes("registration-token-not-registered") || code.includes("invalid-registration-token"));
+
+    await Promise.all(invalidTokens.map(async ({ uid, token }) => {
+      const batch = db.batch();
+      batch.set(
+        db.collection("users").doc(uid),
+        { androidFcmTokens: FieldValue.arrayRemove(token) },
+        { merge: true },
+      );
+      batch.delete(db.collection("androidPushTokens").doc(tokenId(token)));
+      await batch.commit();
+    }));
+  },
+);
+
+/** Sends Android pushes for club messages without exposing private club data. */
+export const notifyAndroidOnNewClubMessage = onDocumentCreated(
+  "clubs/{clubId}/messages/{messageId}",
+  async (event) => {
+    const message = event.data?.data();
+    if (!message) return;
+
+    const senderId = stringValue(message.senderId);
+    const clubId = event.params.clubId;
+    const messageId = event.params.messageId;
+    if (!senderId || !clubId || !messageId) return;
+
+    const clubSnap = await db.collection("clubs").doc(clubId).get();
+    if (!clubSnap.exists) return;
+    const club = clubSnap.data() ?? {};
+    const recipients = messageRecipients(club.memberIds, senderId, club.mutedBy, MAX_RECIPIENTS);
+    if (recipients.length === 0) return;
+
+    const senderSnap = await db.collection("users").doc(senderId).get();
+    const senderName = stringValue(message.senderName) || stringValue(senderSnap.data()?.name) || "Someone";
+    const clubName = stringValue(club.name) || "your club";
+    const preview = messagePreview(message);
+    const title = `${senderName} in ${clubName}`;
+    const link = `/club/${clubId}`;
+
+    const recipientDocs = await Promise.all(
+      recipients.map(async (recipientId) => {
+        const notificationId = `club_${messageId}_${recipientId}`;
+        const ref = db.collection("notifications").doc(notificationId);
+        await ref.create({
+          userId: recipientId,
+          type: "new_message",
+          title,
+          message: preview,
+          link,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        }).catch((error: unknown) => {
+          if (!isAlreadyExists(error)) throw error;
+        });
+        return { recipientId, notificationId };
+      }),
+    );
+
+    const users = await Promise.all(
+      recipientDocs.map(({ recipientId }) => db.collection("users").doc(recipientId).get()),
+    );
+    const tokenOwners: Array<{ uid: string; token: string }> = [];
+    users.forEach((userSnap, index) => {
+      stringList(userSnap.data()?.androidFcmTokens).forEach((token) => {
+        tokenOwners.push({ uid: recipientDocs[index].recipientId, token });
+      });
+    });
+    if (tokenOwners.length === 0) return;
+    const deliveryTargets = tokenOwners.slice(0, 500);
+    const payload: MulticastMessage = {
+      tokens: deliveryTargets.map(({ token }) => token),
+      data: {
+        title,
+        body: preview,
+        message: preview,
+        type: "new_message",
+        link,
+        clubId,
+        notificationId: `club_${clubId}`,
       },
       android: { priority: "high" },
     };

@@ -596,6 +596,7 @@ internal fun notificationRoute(link: String): String? {
         normalized.startsWith("u/") -> normalized
         normalized.startsWith("chat/") -> normalized
         normalized.startsWith("messages/") -> normalized
+        normalized.startsWith("club/") -> normalized
         else -> null
     }
 }
