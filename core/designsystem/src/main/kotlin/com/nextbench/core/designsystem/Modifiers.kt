@@ -39,7 +39,8 @@ fun Modifier.pressScale(
                 onPress = {
                     scope.launch { scale.animateTo(targetScale, NbMotion.pressSpring()) }
                     tryAwaitRelease()
-                    scope.launch { scale.animateTo(1f, NbMotion.pressSpring()) }
+                    // Tiny spring overshoot on release makes the tap feel satisfying.
+                    scope.launch { scale.animateTo(1f, NbMotion.bounceSpring()) }
                 },
                 onTap = { onTap?.invoke() },
             )
@@ -84,7 +85,8 @@ fun Modifier.shimmer(
 
 fun Modifier.staggeredEntrance(index: Int): Modifier = composed {
     val alphaAnim = remember { Animatable(0f) }
-    val tyAnim = remember { Animatable(24f) }
+    val tyAnim    = remember { Animatable(16f) }
+    val scaleAnim = remember { Animatable(0.96f) }
     LaunchedEffect(index) {
         val delay = (index * NbDuration.Stagger).toLong()
         launch {
@@ -93,11 +95,17 @@ fun Modifier.staggeredEntrance(index: Int): Modifier = composed {
         }
         launch {
             kotlinx.coroutines.delay(delay)
-            tyAnim.animateTo(0f, NbMotion.entryTween())
+            tyAnim.animateTo(0f, NbMotion.floatSpring())
+        }
+        launch {
+            kotlinx.coroutines.delay(delay)
+            scaleAnim.animateTo(1f, NbMotion.floatSpring())
         }
     }
     graphicsLayer {
-        alpha = alphaAnim.value
+        alpha        = alphaAnim.value
         translationY = tyAnim.value
+        scaleX       = scaleAnim.value
+        scaleY       = scaleAnim.value
     }
 }

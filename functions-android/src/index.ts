@@ -8,6 +8,8 @@ import { messagePreview, messageRecipients, stringList, stringValue } from "./me
 
 initializeApp();
 
+export * from "./search";
+
 const db = getFirestore();
 const messaging = getMessaging();
 const MAX_TOKEN_LENGTH = 4096;
@@ -163,6 +165,8 @@ export const notifyAndroidOnNewMessage = onDocumentCreated(
 
     const payload: MulticastMessage = {
       tokens: deliveryTargets.map(({ token }) => token),
+      // notification block lets Android show the message even when the app is killed
+      notification: { title, body: preview },
       data: {
         title,
         body: preview,
@@ -170,9 +174,14 @@ export const notifyAndroidOnNewMessage = onDocumentCreated(
         type: "new_message",
         link,
         roomId,
+        senderId,
+        senderName,
         notificationId: `chat_${roomId}`,
       },
-      android: { priority: "high" },
+      android: {
+        priority: "high",
+        notification: { channelId: "nextbench_messages" },
+      },
     };
     const result = await messaging.sendEachForMulticast(payload);
     const invalidTokens = result.responses
@@ -254,6 +263,7 @@ export const notifyAndroidOnNewClubMessage = onDocumentCreated(
     const deliveryTargets = tokenOwners.slice(0, 500);
     const payload: MulticastMessage = {
       tokens: deliveryTargets.map(({ token }) => token),
+      notification: { title, body: preview },
       data: {
         title,
         body: preview,
@@ -261,9 +271,14 @@ export const notifyAndroidOnNewClubMessage = onDocumentCreated(
         type: "new_message",
         link,
         clubId,
+        senderId,
+        senderName,
         notificationId: `club_${clubId}`,
       },
-      android: { priority: "high" },
+      android: {
+        priority: "high",
+        notification: { channelId: "nextbench_messages" },
+      },
     };
     const result = await messaging.sendEachForMulticast(payload);
     const invalidTokens = result.responses

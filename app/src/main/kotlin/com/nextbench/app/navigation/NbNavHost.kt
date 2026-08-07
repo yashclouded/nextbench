@@ -7,8 +7,8 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,23 +59,30 @@ import com.nextbench.app.verification.VerificationScreen
 import com.nextbench.core.designsystem.NbMotion
 
 /**
- * The slide is a twelfth of the screen, not a full page swap — destinations sit
- * under a persistent bottom bar, so a large translation would fight the chrome.
+ * Push forward: incoming screen scales up from 96 % + fades in while the
+ * outgoing screen scales down to 96 % + fades out.  This mirrors the iOS
+ * depth-of-field navigation feel without a distracting full-width slide.
+ *
+ * Pop (back): directions are reversed so it reads as "coming back".
  */
-private const val SlideDivisor = 12
-
 private val NbEnter: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-    fadeIn(animationSpec = NbMotion.interactionTween()) +
-        slideInHorizontally(animationSpec = NbMotion.interactionTween()) { full ->
-            full / SlideDivisor
-        }
+    fadeIn(animationSpec = NbMotion.navTween()) +
+        scaleIn(initialScale = 0.96f, animationSpec = NbMotion.navTween())
 }
 
 private val NbExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-    fadeOut(animationSpec = NbMotion.interactionTween()) +
-        slideOutHorizontally(animationSpec = NbMotion.interactionTween()) { full ->
-            -full / SlideDivisor
-        }
+    fadeOut(animationSpec = NbMotion.navTween()) +
+        scaleOut(targetScale = 0.96f, animationSpec = NbMotion.navTween())
+}
+
+private val NbPopEnter: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+    fadeIn(animationSpec = NbMotion.navTween()) +
+        scaleIn(initialScale = 1.04f, animationSpec = NbMotion.navTween())
+}
+
+private val NbPopExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+    fadeOut(animationSpec = NbMotion.navTween()) +
+        scaleOut(targetScale = 1.04f, animationSpec = NbMotion.navTween())
 }
 
 /**
@@ -103,8 +110,8 @@ fun NbNavHost(
         modifier = modifier,
         enterTransition = NbEnter,
         exitTransition = NbExit,
-        popEnterTransition = NbEnter,
-        popExitTransition = NbExit,
+        popEnterTransition = NbPopEnter,
+        popExitTransition = NbPopExit,
     ) {
         composable(NbRoute.Splash.path) {
             SplashScreen(
@@ -188,7 +195,13 @@ fun NbNavHost(
             }
         }
 
-        composable(NbRoute.Create.path) {
+        composable(
+            route = NbRoute.Create.path,
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/create" },
+                navDeepLink { uriPattern = "nextbench://create" },
+            ),
+        ) {
             GuardedDestination(navController, NbRoute.Create.path, authViewModel) {
                 CreateScreen(
                     user = (session as? SessionState.SignedIn)?.userData,
@@ -222,7 +235,13 @@ fun NbNavHost(
             }
         }
 
-        composable(NbRoute.Messages.path) {
+        composable(
+            route = NbRoute.Messages.path,
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/messages" },
+                navDeepLink { uriPattern = "nextbench://messages" },
+            ),
+        ) {
             GuardedDestination(navController, NbRoute.Messages.path, authViewModel) {
                 MessagesScreen(
                     user = (session as? SessionState.SignedIn)?.userData,
@@ -278,7 +297,13 @@ fun NbNavHost(
             }
         }
 
-        composable(NbRoute.Search.path) {
+        composable(
+            route = NbRoute.Search.path,
+            deepLinks = listOf(
+                navDeepLink { uriPattern = "https://nextbench.in/search" },
+                navDeepLink { uriPattern = "nextbench://search" },
+            ),
+        ) {
             SearchScreen(
                 user = (session as? SessionState.SignedIn)?.userData,
                 onOpenProfile = { userId -> navController.navigate(NbRoute.profile(userId)) { launchSingleTop = true } },
@@ -564,13 +589,8 @@ fun NbNavHost(
                 if (userData != null) {
                     VerificationScreen(
                         user = userData,
-                        onClose = { navigateBackOrFeed(navController) },
-                        onContinue = {
-                            navController.navigate(NbRoute.Feed.path) {
-                                popUpTo(NbRoute.Verification.path) { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        },
+                        onClose = { leaveVerification(navController, completed = false) },
+                        onContinue = { leaveVerification(navController, completed = true) },
                     )
                 }
             }
@@ -632,5 +652,20 @@ fun NavHostController.navigateToTab(tab: NbTab) {
 private fun navigateBackOrFeed(navController: NavHostController) {
     if (!navController.popBackStack()) {
         navController.navigate(NbRoute.Feed.path) { launchSingleTop = true }
+    }
+}
+
+private fun leaveVerification(
+    navController: NavHostController,
+    completed: Boolean,
+) {
+    val caller = navController.previousBackStackEntry?.destination?.route
+    val callerNeedsVerification = requirementForRoute(caller) == com.nextbench.app.auth.RouteRequirement.Verified
+    if ((completed || !callerNeedsVerification) && navController.popBackStack()) return
+
+    navController.navigate(NbRoute.Feed.path) {
+        if (callerNeedsVerification) popUpTo(caller.orEmpty()) { inclusive = true }
+        else popUpTo(NbRoute.Verification.path) { inclusive = true }
+        launchSingleTop = true
     }
 }

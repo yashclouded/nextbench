@@ -99,7 +99,7 @@ fun NbAppShell(
         if (onboardingState.completed == true && initialJourneyFinished) {
             if (externalIntent.action == Intent.ACTION_SEND || externalIntent.action == Intent.ACTION_SEND_MULTIPLE) {
                 if (shouldOpenShareRoute(currentPath)) navController.navigate(NbRoute.Share.path) { launchSingleTop = true }
-            } else if (signedInUid != null) {
+            } else {
                 navController.handleDeepLink(externalIntent)
                 onExternalIntentHandled(externalIntent)
             }

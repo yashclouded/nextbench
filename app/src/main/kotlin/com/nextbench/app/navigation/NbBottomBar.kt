@@ -1,6 +1,7 @@
 package com.nextbench.app.navigation
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -86,15 +89,23 @@ private fun TabItem(
     modifier: Modifier = Modifier,
 ) {
     val colors = NbTheme.colors
+
     val tint by animateColorAsState(
         targetValue = if (selected) colors.brandPink else colors.inkMuted,
         animationSpec = NbMotion.interactionTween(),
         label = "tab_tint",
     )
-    val iconLift by animateFloatAsState(
-        targetValue = if (selected) -2f else 0f,
-        animationSpec = NbMotion.interactionTween(),
-        label = "tab_lift",
+    // Spring-driven scale: selected icon pops up slightly with a bounce
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1.18f else 1f,
+        animationSpec = NbMotion.bounceSpring(),
+        label = "tab_icon_scale",
+    )
+    // Pill indicator width: expands when selected
+    val pillWidth by animateDpAsState(
+        targetValue = if (selected) 24.dp else 0.dp,
+        animationSpec = NbMotion.floatSpring(),
+        label = "tab_pill_w",
     )
 
     Column(
@@ -110,6 +121,15 @@ private fun TabItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(NbDimens.space2),
     ) {
+        // Animated selection pill above icon
+        Box(
+            modifier = Modifier
+                .height(3.dp)
+                .width(pillWidth)
+                .clip(RoundedCornerShape(NbDimens.radiusFull))
+                .background(colors.brandPink),
+        )
+
         Box(contentAlignment = Alignment.TopEnd) {
             Icon(
                 imageVector = tab.icon,
@@ -117,8 +137,10 @@ private fun TabItem(
                 tint = tint,
                 modifier = Modifier
                     .size(24.dp)
-                    .offset(y = iconLift.dp)
-                    .scale(if (selected) 1.04f else 1f),
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    },
             )
             NbCountBadge(
                 count = badgeCount,

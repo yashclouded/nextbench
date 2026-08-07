@@ -46,6 +46,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="nextbench" />
                 <data android:host="community" />
+                <data android:host="create" />
                 <data android:host="marketplace" />
                 <data android:host="post" />
                 <data android:host="product" />
@@ -55,6 +56,7 @@
                 <data android:host="chat" />
                 <data android:host="club" />
                 <data android:host="notifications" />
+                <data android:host="search" />
                 <data android:host="invite" />
             </intent-filter>
 
@@ -65,6 +67,10 @@
                 <data android:scheme="https" />
                 <data android:host="nextbench.in" />
             </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <service
@@ -74,6 +80,14 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".chat.ChatReplyReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nextbench.app.ACTION_CHAT_REPLY" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"
