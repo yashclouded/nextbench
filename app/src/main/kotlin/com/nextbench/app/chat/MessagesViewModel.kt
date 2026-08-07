@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nextbench.data.firebase.ChatRepository
 import com.nextbench.data.firebase.ChatRoomListItem
+import com.nextbench.data.firebase.ClubRepository
 import com.nextbench.data.firebase.InboxBulkOperation
+import com.nextbench.data.model.Club
 import com.nextbench.data.model.UserData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -17,9 +19,34 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** A unified inbox entry covering both direct messages and club chats. */
+sealed interface InboxItem {
+    /** Stable key for use as a LazyColumn item key (prefixed to avoid id collisions). */
+    val listKey: String
+    val sortMillis: Long
+    val isPinned: Boolean
+
+    @Immutable
+    data class DirectMessage(val room: ChatRoomListItem) : InboxItem {
+        override val listKey get() = "dm:${room.room.id}"
+        override val sortMillis get() = room.room.updatedAt?.toDate()?.time ?: Long.MIN_VALUE
+        override val isPinned get() = room.pinned
+    }
+
+    @Immutable
+    data class ClubItem(val club: Club, val viewerId: String) : InboxItem {
+        override val listKey get() = "club:${club.id}"
+        override val sortMillis get() = club.updatedAt?.toDate()?.time ?: Long.MIN_VALUE
+        override val isPinned get() = viewerId in club.pinnedBy
+        val unread: Boolean get() = viewerId in club.unreadBy && viewerId !in club.mutedBy
+        val muted: Boolean get() = viewerId in club.mutedBy
+    }
+}
+
 @Immutable
 data class MessagesUiState(
     val rooms: List<ChatRoomListItem> = emptyList(),
+    val memberClubs: List<Club> = emptyList(),
     val query: String = "",
     val showArchived: Boolean = false,
     val isLoading: Boolean = true,
@@ -30,6 +57,7 @@ data class MessagesUiState(
     val isBulkActionRunning: Boolean = false,
     val notice: ChatNotice? = null,
 ) {
+    /** DM-only filtered list — used by bulk-action selection logic. */
     val visibleRooms: List<ChatRoomListItem>
         get() = rooms.filter { item ->
             val viewerId = viewerId ?: return@filter false
@@ -41,6 +69,43 @@ data class MessagesUiState(
                 item.room.productTitle,
                 item.room.lastMessage,
             ).any { it.contains(search, ignoreCase = true) }
+        }
+
+    /** Merged DM + club list shown in the inbox. */
+    val visibleItems: List<InboxItem>
+        get() {
+            val uid = viewerId ?: return emptyList()
+            val search = query.trim()
+
+            val dmItems = rooms
+                .filter { item ->
+                    if (item.deleted) return@filter false
+                    if (showArchived != item.archived) return@filter false
+                    search.isBlank() || listOfNotNull(
+                        item.otherUser?.name,
+                        item.room.productTitle,
+                        item.room.lastMessage,
+                    ).any { it.contains(search, ignoreCase = true) }
+                }
+                .map { InboxItem.DirectMessage(it) }
+
+            // Clubs only appear in the active (non-archived) view for now.
+            val clubItems = if (!showArchived) {
+                memberClubs
+                    .filter { club ->
+                        val deleted = uid in club.deletedBy && uid !in club.unreadBy
+                        if (deleted) return@filter false
+                        search.isBlank() || listOf(club.name, club.lastMessage.orEmpty())
+                            .any { it.contains(search, ignoreCase = true) }
+                    }
+                    .map { InboxItem.ClubItem(it, uid) }
+            } else emptyList()
+
+            return (dmItems + clubItems)
+                .sortedWith(
+                    compareByDescending<InboxItem> { it.isPinned }
+                        .thenByDescending { it.sortMillis },
+                )
         }
 
     val archivedCount: Int
@@ -56,18 +121,21 @@ data class MessagesUiState(
 @HiltViewModel
 class MessagesViewModel @Inject constructor(
     private val repository: ChatRepository,
+    private val clubRepository: ClubRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MessagesUiState())
     val state: StateFlow<MessagesUiState> = _state.asStateFlow()
 
     private var viewer: UserData? = null
     private var roomsJob: Job? = null
+    private var clubsJob: Job? = null
     private var noticeId = 0L
 
     fun syncViewer(user: UserData?) {
         if (viewer?.uid == user?.uid && (viewer == null) == (user == null)) return
         viewer = user
         roomsJob?.cancel()
+        clubsJob?.cancel()
         _state.value = MessagesUiState(
             isLoading = user != null,
             viewerId = user?.uid,
@@ -90,6 +158,11 @@ class MessagesViewModel @Inject constructor(
                         )
                     }
                 }
+        }
+        clubsJob = viewModelScope.launch {
+            clubRepository.observeMemberClubs(uid)
+                .catch { /* clubs are supplementary; swallow errors silently */ }
+                .collect { clubs -> _state.update { it.copy(memberClubs = clubs) } }
         }
     }
 

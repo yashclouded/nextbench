@@ -67,12 +67,14 @@ import com.nextbench.core.designsystem.NbTextField
 import com.nextbench.core.designsystem.NbTheme
 import com.nextbench.core.designsystem.NbVerifiedBadge
 import com.nextbench.data.firebase.ChatRoomListItem
+import com.nextbench.data.model.Club
 import com.nextbench.data.model.UserData
 
 @Composable
 fun MessagesScreen(
     user: UserData?,
     onOpenRoom: (String) -> Unit,
+    onOpenClub: (String) -> Unit = {},
     onOpenClubs: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MessagesViewModel = hiltViewModel(),
@@ -145,26 +147,35 @@ fun MessagesScreen(
             when {
                 state.isLoading -> InboxSkeleton(modifier = Modifier.fillMaxSize())
                 state.error != null -> InboxError(message = state.error.orEmpty(), onRetry = viewModel::retry)
-                state.visibleRooms.isEmpty() -> InboxEmpty(showArchived = state.showArchived, query = state.query)
+                state.visibleItems.isEmpty() -> InboxEmpty(showArchived = state.showArchived, query = state.query)
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = NbDimens.space24),
                 ) {
-                    items(state.visibleRooms, key = { it.room.id }) { item ->
-                        SwipeConversationRow(
-                            item = item,
-                            busy = item.room.id in state.busyRoomIds,
-                            selectionMode = state.selectionMode,
-                            selected = item.room.id in state.selectedRoomIds,
-                            onClick = {
-                                if (state.selectionMode) viewModel.toggleSelection(item) else onOpenRoom(item.room.id)
-                            },
-                            onLongPress = {
-                                viewModel.toggleSelection(item)
-                            },
-                            onToggleRead = { viewModel.toggleRead(item) },
-                            onToggleArchive = { viewModel.toggleArchive(item) },
-                        )
+                    items(state.visibleItems, key = { it.listKey }) { item ->
+                        when (item) {
+                            is InboxItem.DirectMessage -> {
+                                SwipeConversationRow(
+                                    item = item.room,
+                                    busy = item.room.room.id in state.busyRoomIds,
+                                    selectionMode = state.selectionMode,
+                                    selected = item.room.room.id in state.selectedRoomIds,
+                                    onClick = {
+                                        if (state.selectionMode) viewModel.toggleSelection(item.room)
+                                        else onOpenRoom(item.room.room.id)
+                                    },
+                                    onLongPress = { viewModel.toggleSelection(item.room) },
+                                    onToggleRead = { viewModel.toggleRead(item.room) },
+                                    onToggleArchive = { viewModel.toggleArchive(item.room) },
+                                )
+                            }
+                            is InboxItem.ClubItem -> {
+                                ClubConversationRow(
+                                    item = item,
+                                    onClick = { onOpenClub(item.club.id) },
+                                )
+                            }
+                        }
                         HorizontalDivider(
                             modifier = Modifier.padding(start = 88.dp),
                             color = NbTheme.colors.border,
@@ -362,6 +373,81 @@ private fun ConversationRow(item: ChatRoomListItem, busy: Boolean, selected: Boo
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
                 if (item.pinned) Icon(NbIcons.BookmarkFilled, contentDescription = "Pinned", tint = NbTheme.colors.brandTeal, modifier = Modifier.size(13.dp))
+                if (item.muted) Icon(NbIcons.VolumeOff, contentDescription = "Muted", tint = NbTheme.colors.inkMuted, modifier = Modifier.size(13.dp))
+                timestamp?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = if (item.unread) NbTheme.colors.brandTeal else NbTheme.colors.inkMuted) }
+            }
+            if (item.unread) NbCountBadge(count = 1)
+        }
+    }
+}
+
+@Composable
+private fun ClubConversationRow(item: InboxItem.ClubItem, onClick: () -> Unit) {
+    val club = item.club
+    val preview = club.lastMessage?.takeIf(String::isNotBlank) ?: "Start the conversation"
+    val timestamp = club.updatedAt?.toDate()?.time?.let(::formatRelativeTime)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(NbTheme.colors.surfaceBase)
+            .clickable(onClick = onClick)
+            .padding(horizontal = NbDimens.space16, vertical = NbDimens.space14),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Club avatar — teal rounded square with icon (matches ClubChatHeader style)
+        Box(
+            modifier = Modifier
+                .size(NbDimens.avatarLg)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(NbDimens.radiusMd))
+                .background(NbTheme.colors.brandTeal.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!club.avatar.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = club.avatar,
+                    contentDescription = club.name,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    NbIcons.Messages,
+                    contentDescription = null,
+                    tint = NbTheme.colors.brandTeal,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            if (item.unread) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(NbTheme.colors.brandPink)
+                        .align(Alignment.BottomEnd),
+                )
+            }
+        }
+        Spacer(Modifier.width(NbDimens.space12))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+            Text(
+                club.name.ifBlank { "Campus club" },
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = if (item.unread) FontWeight.Bold else FontWeight.SemiBold),
+                color = NbTheme.colors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                preview,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = if (item.unread) FontWeight.Medium else FontWeight.Normal),
+                color = if (item.unread) NbTheme.colors.ink else NbTheme.colors.inkMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(NbDimens.space8))
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NbDimens.space4)) {
+                if (item.isPinned) Icon(NbIcons.BookmarkFilled, contentDescription = "Pinned", tint = NbTheme.colors.brandTeal, modifier = Modifier.size(13.dp))
                 if (item.muted) Icon(NbIcons.VolumeOff, contentDescription = "Muted", tint = NbTheme.colors.inkMuted, modifier = Modifier.size(13.dp))
                 timestamp?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = if (item.unread) NbTheme.colors.brandTeal else NbTheme.colors.inkMuted) }
             }

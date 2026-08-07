@@ -248,6 +248,9 @@ fun NbNavHost(
                     onOpenRoom = { roomId ->
                         navController.navigate(NbRoute.messages(roomId)) { launchSingleTop = true }
                     },
+                    onOpenClub = { clubId ->
+                        navController.navigate(NbRoute.clubMessages(clubId)) { launchSingleTop = true }
+                    },
                     onOpenClubs = { navController.navigate(NbRoute.Clubs.path) { launchSingleTop = true } },
                 )
             }
